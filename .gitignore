@@ -15,6 +15,7 @@ venv/
 credentials/
 *.json
 !package.json
+!package-lock.json
 !tsconfig.json
 
 # Uploads & build
