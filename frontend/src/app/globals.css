@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  @apply text-slate-900 antialiased;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #f3e8ff 0%, #ede9fe 30%, #e0f2fe 70%, #f0fdf4 100%);
+  background-attachment: fixed;
+}

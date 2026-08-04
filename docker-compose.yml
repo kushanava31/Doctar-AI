@@ -1,0 +1,21 @@
+services:
+  api:
+    build:
+      context: ./backend-node
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      # MongoDB is hosted on Atlas — supply the URI via your shell/.env, do not commit it.
+      MONGODB_URI: ${MONGODB_URI:-}
+      PORT: "8000"
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://doctar.in,http://localhost:3000}
+      UPLOAD_DIR: /app/uploads
+      USE_REAL_DOCTOR_DB: "true"
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+    volumes:
+      - ./backend-node/uploads:/app/uploads

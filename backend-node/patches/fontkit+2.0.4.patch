@@ -1,0 +1,13 @@
+diff --git a/node_modules/fontkit/dist/main.cjs b/node_modules/fontkit/dist/main.cjs
+index 851b2d2..532dc75 100644
+--- a/node_modules/fontkit/dist/main.cjs
++++ b/node_modules/fontkit/dist/main.cjs
+@@ -9986,6 +9986,8 @@ class $79ea6270f0a90256$export$2e2bcd8739ae039 extends (0, $7b226e6bbeadedeb$exp
+     }
+     getAnchor(anchor) {
+         // TODO: contour point, device tables
++        // Guard against null anchors in some fonts' GPOS tables (e.g. NotoSansDevanagari)
++        if (anchor == null) return { x: 0, y: 0 };
+         let x = anchor.xCoordinate;
+         let y = anchor.yCoordinate;
+         // Adjustments for font variations

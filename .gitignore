@@ -1,0 +1,37 @@
+# Local tooling (bootstrap)
+.tools/
+backend/.packages/
+
+# Dependencies
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Env & secrets
+.env
+.env.local
+credentials/
+*.json
+!package.json
+!tsconfig.json
+
+# Uploads & build
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/doctar.db
+backend/*.db
+frontend/.next/
+dist/
+*.egg-info/
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" fill="none">
+  <!-- Purple background rounded square -->
+  <rect width="80" height="80" rx="18" fill="#7c3aed"/>
+
+  <!-- Capsule group, centered and slightly tilted -->
+  <g transform="translate(40,40) rotate(-8)">
+
+    <!-- Left half of capsule (dark purple) -->
+    <path d="M-22,0 A14,14 0 0,1 0,-14 L0,14 A14,14 0 0,1 -22,0 Z"
+          fill="#3b1a6e" />
+    <!-- Subtle shadow edge on left half -->
+    <path d="M-2,-14 L-2,14 Q-10,12 -18,4 A14,14 0 0,1 -18,-4 Q-10,-12 -2,-14 Z"
+          fill="#2d1060" opacity="0.35"/>
+
+    <!-- Right half of capsule (white/light grey) -->
+    <path d="M0,-14 A14,14 0 0,1 22,0 A14,14 0 0,1 0,14 L0,-14 Z"
+          fill="#e8e8ec" />
+    <!-- Subtle highlight on right half -->
+    <path d="M4,-13 Q14,-10 20,-2 Q14,-12 4,-13 Z"
+          fill="white" opacity="0.6"/>
+
+    <!-- Centre dividing line / seam shadow -->
+    <line x1="0" y1="-14" x2="0" y2="14" stroke="#1e0a4a" stroke-width="1.2" opacity="0.4"/>
+
+    <!-- Cord / string coming off right tip -->
+    <path d="M22,0 Q30,4 28,12 Q26,18 30,20"
+          stroke="#d1d1d8" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+    <circle cx="30" cy="20" r="2.2" fill="#c4c4cc"/>
+  </g>
+</svg>
