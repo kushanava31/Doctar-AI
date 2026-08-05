@@ -188,7 +188,21 @@ function getLangHint(city: string): string {
   return "";
 }
 
-function generateMockDoctors(speciality: string, city: string, count = 5): DoctorDict[] {
+/**
+ * Fee bounded to a caller-supplied cap ("under ₹500" style queries), falling
+ * back to the original flat demo range when no cap is given. The low end
+ * scales with the cap (rather than pinning every result to the ceiling) so
+ * generated fees still vary instead of all landing on exactly maxFee.
+ */
+function boundedFee(seed: bigint, maxFee: number | null): number {
+  if (!maxFee || maxFee <= 0) return 300 + Number(seed % 10n) * 80;
+  const high = Math.floor(maxFee);
+  const low = Math.min(high, Math.max(100, Math.floor(high * 0.4)));
+  const span = high - low;
+  return low + (span > 0 ? Number(seed % BigInt(span + 1)) : 0);
+}
+
+function generateMockDoctors(speciality: string, city: string, count = 5, maxFee: number | null = null): DoctorDict[] {
   const cityLower = city.toLowerCase();
   const surnames = REGION_SURNAMES.find(([k]) => cityLower.includes(k))?.[1] ?? SURNAMES_HINDI;
   const femaleRatio = SPECIALITY_FEMALE_RATIO[speciality] ?? 0.4;
@@ -238,7 +252,7 @@ function generateMockDoctors(speciality: string, city: string, count = 5): Docto
     seenNames.add(full);
 
     const hospital = `${last} ${pick(HOSPITAL_SUFFIXES, hSuffix)}`;
-    const fee = 300 + Number(hFee % 10n) * 80;
+    const fee = boundedFee(hFee, maxFee);
     const rating = Math.round((4.0 + Number(hRating % 11n) / 22) * 10) / 10;
     const exp = 4 + Number(hExp % 18n);
 
@@ -262,7 +276,13 @@ function generateMockDoctors(speciality: string, city: string, count = 5): Docto
 const GEMINI_URL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={key}";
 
-const GENERATE_PROMPT = (count: number, speciality: string, city: string, langHint: string) =>
+const GENERATE_PROMPT = (
+  count: number,
+  speciality: string,
+  city: string,
+  langHint: string,
+  maxFee: number | null
+) =>
   `You are a medical directory for India.
 Generate ${count} realistic doctor profiles for ${speciality} doctors in ${city}, India.
 
@@ -273,7 +293,11 @@ Each object must have exactly these fields:
   "speciality": "${speciality}",
   "hospital": "Real or realistic hospital name in ${city}",
   "city": "${city}",
-  "fee": <integer between 300 and 1500>,
+  "fee": <integer${
+    maxFee && maxFee > 0
+      ? ` between ${Math.min(maxFee, Math.max(100, Math.floor(maxFee * 0.4)))} and ${Math.floor(maxFee)} — must NOT exceed ₹${Math.floor(maxFee)}`
+      : " between 300 and 1500"
+  }>,
   "rating": <float between 4.0 and 5.0>,
   "experience_years": <integer between 3 and 25>,
   "available_today": <true or false>,
@@ -283,7 +307,9 @@ Each object must have exactly these fields:
 Rules:
 - Use culturally appropriate Indian names for the region (${city})
 - Hospital names should sound realistic for that city
-- Vary fees, ratings, experience realistically
+- Vary fees, ratings, experience realistically${
+    maxFee && maxFee > 0 ? `\n- Every fee MUST be ≤ ₹${Math.floor(maxFee)} — this is a hard budget cap the user specified` : ""
+  }
 - Languages: add local language of ${city} if applicable
 
 Return JSON array only:`;
@@ -360,23 +386,33 @@ async function geminiJsonArray(prompt: string, temperature: number, maxTokens: n
   return [];
 }
 
-async function generateViaGemini(speciality: string, city: string, count = 5): Promise<DoctorDict[]> {
+async function generateViaGemini(
+  speciality: string,
+  city: string,
+  count = 5,
+  maxFee: number | null = null
+): Promise<DoctorDict[]> {
   const langHint = getLangHint(city);
-  const doctors = await geminiJsonArray(GENERATE_PROMPT(count, speciality, city, langHint), 0.7, 1000);
+  const doctors = await geminiJsonArray(GENERATE_PROMPT(count, speciality, city, langHint, maxFee), 0.7, 1000);
   return doctors
     .filter((d) => d && typeof d === "object")
-    .map((d, i) => ({
-      id: `ai_${city}_${speciality}_${i}`.replace(/ /g, "_"),
-      name: String(d.name ?? `Dr. ${speciality} ${i + 1}`),
-      speciality,
-      hospital: String(d.hospital ?? `City Hospital ${city}`),
-      city,
-      fee: parseInt(d.fee ?? 600, 10) || 600,
-      rating: parseFloat(d.rating ?? 4.3) || 4.3,
-      experience_years: parseInt(d.experience_years ?? 8, 10) || 8,
-      available_today: Boolean(d.available_today ?? true),
-      languages: String(d.languages ?? "Hindi, English"),
-    }));
+    .map((d, i) => {
+      let fee = parseInt(d.fee ?? 600, 10) || 600;
+      // Safety net in case Gemini doesn't honour the prompt's fee cap.
+      if (maxFee && maxFee > 0 && fee > maxFee) fee = maxFee;
+      return {
+        id: `ai_${city}_${speciality}_${i}`.replace(/ /g, "_"),
+        name: String(d.name ?? `Dr. ${speciality} ${i + 1}`),
+        speciality,
+        hospital: String(d.hospital ?? `City Hospital ${city}`),
+        city,
+        fee,
+        rating: parseFloat(d.rating ?? 4.3) || 4.3,
+        experience_years: parseInt(d.experience_years ?? 8, 10) || 8,
+        available_today: Boolean(d.available_today ?? true),
+        languages: String(d.languages ?? "Hindi, English"),
+      };
+    });
 }
 
 // ── Public: doctor recommendations ────────────────────────────────────────
@@ -434,21 +470,21 @@ export async function getDoctorRecommendations(
   const searchCity = queryCity ?? city;
 
   // Step 2: Google Places live search
-  const liveDocs = await searchDoctorsLive(searchSpeciality, searchCity, limit);
+  const liveDocs = await searchDoctorsLive(searchSpeciality, searchCity, limit, maxFee);
   if (liveDocs.length) {
     console.log(`Google Places returned ${liveDocs.length} live results for ${searchSpeciality} in ${searchCity}`);
     return { doctors: liveDocs, isGenerated: false, resolvedCity: searchCity, assumedSpeciality };
   }
 
   // Step 3: Gemini-generated profiles
-  const geminiDocs = await generateViaGemini(searchSpeciality, searchCity, limit);
+  const geminiDocs = await generateViaGemini(searchSpeciality, searchCity, limit, maxFee);
   if (geminiDocs.length) {
     return { doctors: geminiDocs, isGenerated: true, resolvedCity: searchCity, assumedSpeciality };
   }
 
   // Step 4: deterministic mock
   return {
-    doctors: generateMockDoctors(searchSpeciality, searchCity, limit),
+    doctors: generateMockDoctors(searchSpeciality, searchCity, limit, maxFee),
     isGenerated: true,
     resolvedCity: searchCity,
     assumedSpeciality,
@@ -458,8 +494,13 @@ export async function getDoctorRecommendations(
 export const findDoctors = getDoctorRecommendations;
 
 /** Public wrapper for the deterministic mock generator (used as a last resort by chat). */
-export function generateMockDoctorsPublic(speciality: string, city: string, count = 5): DoctorDict[] {
-  return generateMockDoctors(speciality, city, count);
+export function generateMockDoctorsPublic(
+  speciality: string,
+  city: string,
+  count = 5,
+  maxFee: number | null = null
+): DoctorDict[] {
+  return generateMockDoctors(speciality, city, count, maxFee);
 }
 
 // ── Hospital search ───────────────────────────────────────────────────────

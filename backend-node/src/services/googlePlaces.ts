@@ -46,9 +46,23 @@ const CITY_FEE: Record<string, [number, number]> = {
   coimbatore: [300, 800], vadodara: [300, 800], patna: [250, 700],
 };
 
-function feeForCity(city: string, speciality: string): number {
-  const [low, high] = CITY_FEE[city.toLowerCase()] ?? [250, 600];
+/**
+ * Fee is synthetic either way (Places doesn't return consultation fees), so
+ * when the caller passed a budget cap ("under ₹500"), bound the generated
+ * fee to it directly rather than rejecting a genuine live result over a
+ * made-up number that happened to land above the cap. Mirrors
+ * doctorRepository.ts's boundedFee — kept local here to avoid a circular
+ * import back into that module.
+ */
+function feeForCity(city: string, speciality: string, maxFee: number | null = null): number {
   const seed = parseInt(createHash("md5").update(`${city}${speciality}`).digest("hex").slice(0, 8), 16);
+  if (maxFee && maxFee > 0) {
+    const high = Math.floor(maxFee);
+    const low = Math.min(high, Math.max(100, Math.floor(high * 0.4)));
+    const span = high - low;
+    return low + (span > 0 ? seed % (span + 1) : 0);
+  }
+  const [low, high] = CITY_FEE[city.toLowerCase()] ?? [250, 600];
   return low + (seed % (high - low + 1));
 }
 
@@ -115,7 +129,8 @@ async function placesTextSearch(query: string, maxResultCount: number): Promise<
 export async function searchDoctorsLive(
   speciality: string,
   city: string,
-  limit = 5
+  limit = 5,
+  maxFee: number | null = null
 ): Promise<DoctorDict[]> {
   if (!settings.googlePlacesApiKey) return [];
 
@@ -149,7 +164,7 @@ export async function searchDoctorsLive(
       : `Dr. ${rawName.slice(2).trim()}`;
     const hospital = address.split(",")[0].trim() || city;
 
-    const fee = feeForCity(city, speciality);
+    const fee = feeForCity(city, speciality, maxFee);
     const exp = Math.max(5, Math.floor((rating - 3.5) * 10));
 
     results.push({
