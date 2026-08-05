@@ -11,7 +11,12 @@ services:
       PORT: "8000"
       CORS_ORIGINS: ${CORS_ORIGINS:-https://doctar.in,http://localhost:3000}
       UPLOAD_DIR: /app/uploads
-      USE_REAL_DOCTOR_DB: "true"
+      # "false" = Google Places / Gemini / deterministic-mock fallback chain is
+      # active, so every search returns results even where the real MongoDB
+      # collection has no matching doctor — current intent while the real
+      # doctor database is still being populated. Switch to "true" once it has
+      # real coverage, so only genuine listings are ever shown to patients.
+      USE_REAL_DOCTOR_DB: "false"
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
