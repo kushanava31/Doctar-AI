@@ -4,6 +4,7 @@
  * with a built-in fallback DB. Faithful port of the Python medicine_info.py.
  */
 import { settings } from "../config.js";
+import { geminiQuotaBlocked, noteGeminiQuotaError } from "./gemini.js";
 
 export interface MedicineInfo {
   name: string;
@@ -351,13 +352,26 @@ const MEDICINE_QUERY_PATS =
   /\b(what is|tell me about|info on|information about|uses of|use of|side effects of|dosage of|how to use|can i take|is it safe to take|kya hai|kya hota hai|kab lete hain|kaise lete hain|kitni dose)\b/i;
 const QUERY_PREFIX_PAT =
   /^\s*(what is|tell me about|info on|information about|uses of|use of|side effects of|dosage of|how to use|can i take|is it safe to take|kya hai|kya hota hai|kab lete hain|kaise lete hain|kitni dose)\s*/i;
+// Applied repeatedly (see stripQuerySuffixes) so multi-word tails peel off one
+// token at a time — "paracetamol used for" → "paracetamol used" → "paracetamol".
 const QUERY_SUFFIX_PAT =
-  /\s*(tablet|tablets|capsule|capsules|syrup|injection|cream|ointment|drops|uses|use|dose|dosage|mg|mcg|ml|side effect|side effects|information|info|details|kya hai)\s*$/i;
+  /\s*\b(tablet|tablets|capsule|capsules|syrup|injection|cream|ointment|drops|uses|used|use|for|dose|dosage|mg|mcg|ml|side effect|side effects|information|info|details|good|prescribed|taken|meant|kya hai|ke liye|ka use)\b\s*$/i;
 const SYMPTOM_DISQUALIFIERS =
   /\b(doctor|specialist|hospital|clinic|appointment|near me|nearby|pain|ache|fever|symptoms|symptom|treatment|cure|mujhe|mera|ho rha|bukhar|khansi|dard|jalan|sujan|khujli)\b/i;
 
+/** Peel trailing filler words off until only the medicine name is left. */
+function stripQuerySuffixes(text: string): string {
+  let out = text.trim();
+  for (let i = 0; i < 6; i++) {
+    const next = out.replace(QUERY_SUFFIX_PAT, "").trim();
+    if (next === out || !next) return out;
+    out = next;
+  }
+  return out;
+}
+
 function extractMedicineSubject(text: string): string {
-  return text.replace(QUERY_PREFIX_PAT, "").trim().replace(QUERY_SUFFIX_PAT, "").trim();
+  return stripQuerySuffixes(text.replace(QUERY_PREFIX_PAT, "").trim());
 }
 
 function looksLikeMedicine(word: string): boolean {
@@ -394,7 +408,11 @@ function resolveMedicineName(raw: string): string {
       /\b(tablet|capsule|syrup|injection|cream|ointment|drops|uses|use|dosage|dose|mg|mcg|ml|side effect|side effects|what is|tell me about|info on|information about|uses of|kya hai)\b/gi,
       ""
     )
+    .replace(/\s+/g, " ")
     .trim();
+  // Trailing filler ("used for", "good for", …) survives the blanket strip
+  // above, and a key like "paracetamol used for" misses the DB entirely.
+  clean = stripQuerySuffixes(clean);
   if (clean in MEDICINE_ALIASES) return MEDICINE_ALIASES[clean];
   return clean;
 }
@@ -447,6 +465,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function lookupViaGemini(medicineName: string): Promise<MedicineInfo | null> {
   if (!settings.geminiApiKey) return null;
+  if (geminiQuotaBlocked()) {
+    console.warn(`Gemini medicine lookup skipped (quota cool-down) for ${medicineName}`);
+    return null;
+  }
   const url = GEMINI_URL.replace("{key}", settings.geminiApiKey);
   const payload = JSON.stringify({
     contents: [{ role: "user", parts: [{ text: MEDICINE_GEMINI_PROMPT(medicineName) }]}],
@@ -465,11 +487,20 @@ async function lookupViaGemini(medicineName: string): Promise<MedicineInfo | nul
       });
       clearTimeout(timer);
       if (!resp.ok) {
-        if ((resp.status === 429 || resp.status === 503) && attempt === 0) {
+        // Log the body, not just the status — a 429 from an exhausted quota
+        // and a 400 from a bad key are the same number of digits otherwise.
+        const body = (await resp.text().catch(() => "")).slice(0, 500);
+        if (resp.status === 429) {
+          noteGeminiQuotaError(body);
+          console.warn(`Gemini medicine lookup 429 (quota) for ${medicineName}: ${body}`);
+          return null;
+        }
+        if (resp.status === 503 && attempt === 0) {
+          console.warn(`Gemini medicine lookup 503 (overloaded), retrying in 1s: ${body}`);
           await sleep(1000);
           continue;
         }
-        console.warn(`Gemini medicine lookup HTTP error ${resp.status} for ${medicineName}`);
+        console.warn(`Gemini medicine lookup failed ${resp.status} for ${medicineName}: ${body}`);
         return null;
       }
       const data: any = await resp.json();

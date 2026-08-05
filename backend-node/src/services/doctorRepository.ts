@@ -12,6 +12,7 @@
 import { createHash } from "node:crypto";
 import { settings } from "../config.js";
 import { Doctor } from "../models/Doctor.js";
+import { geminiQuotaBlocked, noteGeminiQuotaError } from "./gemini.js";
 import { searchDoctorsLive, searchHospitalsLive } from "./googlePlaces.js";
 
 export interface DoctorDict {
@@ -299,6 +300,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function geminiJsonArray(prompt: string, temperature: number, maxTokens: number): Promise<any[]> {
   if (!settings.geminiApiKey) return [];
+  if (geminiQuotaBlocked()) {
+    console.warn("Gemini generation skipped — quota cool-down active; using deterministic fallback");
+    return [];
+  }
   const url = GEMINI_URL.replace("{key}", settings.geminiApiKey);
   const payload = JSON.stringify({
     contents: [{ role: "user", parts: [{ text: prompt }]}],
@@ -318,11 +323,20 @@ async function geminiJsonArray(prompt: string, temperature: number, maxTokens: n
       clearTimeout(timer);
       if (!resp.ok) {
         // Truncated response body (not just the status code) so a real
-        // failure is diagnosable from server logs alone.
-        const body = (await resp.text().catch(() => "")).slice(0, 300);
-        if ((resp.status === 429 || resp.status === 503) && attempt < GEMINI_MAX_ATTEMPTS - 1) {
+        // failure is diagnosable from server logs alone — an invalid key, a
+        // retired model name and an exhausted quota are indistinguishable as
+        // bare status codes but obvious from the body.
+        const body = (await resp.text().catch(() => "")).slice(0, 500);
+        if (resp.status === 429) {
+          // Quota, not overload — retrying inside this request cannot help,
+          // and every other Gemini caller is about to get 429 too.
+          noteGeminiQuotaError(body);
+          console.warn(`Gemini 429 (quota) — falling back to deterministic generation: ${body}`);
+          return [];
+        }
+        if (resp.status === 503 && attempt < GEMINI_MAX_ATTEMPTS - 1) {
           const backoff = Math.min(1000 * (attempt + 1), 3000);
-          console.warn(`Gemini ${resp.status}, retrying in ${backoff}ms: ${body}`);
+          console.warn(`Gemini 503 (overloaded), retrying in ${backoff}ms: ${body}`);
           await sleep(backoff);
           continue;
         }
@@ -370,7 +384,12 @@ export interface DoctorRecommendations {
   doctors: DoctorDict[];
   isGenerated: boolean;
   resolvedCity: string | null;
+  /** True when no speciality was requested and the fallback chain assumed one. */
+  assumedSpeciality: boolean;
 }
+
+/** What a city-only search falls back to, so the generation steps always have one. */
+const DEFAULT_SPECIALITY = "General Physician";
 
 export async function getDoctorRecommendations(
   speciality: string | null,
@@ -386,34 +405,54 @@ export async function getDoctorRecommendations(
   if (doctors.length && city && queryCity) {
     const firstCity = doctors[0].city || "";
     if (firstCity.toLowerCase() !== queryCity.toLowerCase()) {
-      return { doctors, isGenerated: false, resolvedCity: firstCity };
+      return { doctors, isGenerated: false, resolvedCity: firstCity, assumedSpeciality: false };
     }
   }
-  if (doctors.length) return { doctors, isGenerated: false, resolvedCity: displayCity };
+  if (doctors.length) {
+    return { doctors, isGenerated: false, resolvedCity: displayCity, assumedSpeciality: false };
+  }
 
-  if (settings.useRealDoctorDb) return { doctors: [], isGenerated: false, resolvedCity: displayCity };
+  // Production safety valve: against the shared doctar.in database we only
+  // ever surface doctors that really exist, so the generation chain below is
+  // skipped entirely. See USE_REAL_DOCTOR_DB in .env.
+  if (settings.useRealDoctorDb) {
+    return { doctors: [], isGenerated: false, resolvedCity: displayCity, assumedSpeciality: false };
+  }
+
+  // Steps 2-4 need a speciality to search/generate for. A city-only query
+  // ("doctors in Kolkata") used to fall straight through to an empty result
+  // here, which is why only the one caller that special-cased it got results;
+  // assuming General Physician makes every caller behave the same.
+  if (!city) {
+    return { doctors: [], isGenerated: false, resolvedCity: displayCity, assumedSpeciality: false };
+  }
+  const assumedSpeciality = !speciality;
+  const searchSpeciality = speciality ?? DEFAULT_SPECIALITY;
+  // Search/generate against the STATE_TO_CITY-resolved city, so "Jharkhand"
+  // yields doctors in Ranchi rather than a set of profiles addressed to a
+  // whole state. Identical to `city` for anything already a city.
+  const searchCity = queryCity ?? city;
 
   // Step 2: Google Places live search
-  if (speciality && city) {
-    const liveDocs = await searchDoctorsLive(speciality, city, limit);
-    if (liveDocs.length) {
-      console.log(`Google Places returned ${liveDocs.length} live results for ${speciality} in ${city}`);
-      return { doctors: liveDocs, isGenerated: false, resolvedCity: city };
-    }
+  const liveDocs = await searchDoctorsLive(searchSpeciality, searchCity, limit);
+  if (liveDocs.length) {
+    console.log(`Google Places returned ${liveDocs.length} live results for ${searchSpeciality} in ${searchCity}`);
+    return { doctors: liveDocs, isGenerated: false, resolvedCity: searchCity, assumedSpeciality };
   }
 
   // Step 3: Gemini-generated profiles
-  if (speciality && city) {
-    const geminiDocs = await generateViaGemini(speciality, city, limit);
-    if (geminiDocs.length) return { doctors: geminiDocs, isGenerated: true, resolvedCity: city };
+  const geminiDocs = await generateViaGemini(searchSpeciality, searchCity, limit);
+  if (geminiDocs.length) {
+    return { doctors: geminiDocs, isGenerated: true, resolvedCity: searchCity, assumedSpeciality };
   }
 
   // Step 4: deterministic mock
-  if (speciality && city) {
-    return { doctors: generateMockDoctors(speciality, city, limit), isGenerated: true, resolvedCity: city };
-  }
-
-  return { doctors: [], isGenerated: false, resolvedCity: displayCity };
+  return {
+    doctors: generateMockDoctors(searchSpeciality, searchCity, limit),
+    isGenerated: true,
+    resolvedCity: searchCity,
+    assumedSpeciality,
+  };
 }
 
 export const findDoctors = getDoctorRecommendations;

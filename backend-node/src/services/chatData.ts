@@ -274,12 +274,21 @@ export const FAQ_KEYWORDS: string[] = [
   "doctar website", "doctar.in", "helpline kya hai", "number batao",
 ];
 
+// Keep in sync with the `serious_symptom` list in chat.ts's COMBINED_PROMPT —
+// Gemini is only consulted for doctor/hospital searches that already name a
+// city, so anything the prompt calls an emergency must also be recognised
+// here or it falls through to the "I didn't understand that" branch.
 export const EMERGENCY_KEYWORDS: Array<[string, string]> = [
   ["cardiac arrest", "cardiac"], ["heart attack", "cardiac"], ["dil ka daura", "cardiac"],
+  ["chest pain", "cardiac"], ["seene mein dard", "cardiac"], ["seena dard", "cardiac"],
+  ["chhati mein dard", "cardiac"],
   ["stroke", "emergency"], ["paralysis", "emergency"], ["lakwa", "emergency"],
   ["seizure", "emergency"], ["mirgi ka daura", "emergency"], ["not breathing", "emergency"],
   ["can't breathe", "emergency"], ["cant breathe", "emergency"], ["saans nahi aa rahi", "emergency"],
+  ["difficulty breathing", "emergency"], ["trouble breathing", "emergency"],
+  ["shortness of breath", "emergency"], ["breathlessness", "emergency"],
   ["saans nahi aa rha", "emergency"], ["saans nahi le pa", "emergency"], ["dam ghut raha", "emergency"],
+  ["saans phool", "emergency"],
   ["unconscious", "emergency"], ["behosh", "emergency"], ["severe bleeding", "trauma"],
   ["khoon bohot beh", "trauma"], ["bahut khoon beh", "trauma"], ["accident ho gaya", "trauma"],
   ["road accident", "trauma"], ["poisoning", "emergency"], ["zeher kha liya", "emergency"],
@@ -288,7 +297,7 @@ export const EMERGENCY_KEYWORDS: Array<[string, string]> = [
 ];
 
 export const EMERGENCY_PAT =
-  /\b(cardiac arrest|heart attack|stroke|seizure|not breathing|can'?t breathe|unconscious|severe bleeding|overdose|poisoning|choking|suicide attempt)\b|saans nahi (aa rahi|aa rha|le pa)|dam ghut|behosh|lakwa|khudkushi|khoon (bohot|bahut) beh|bahut khoon beh|accident ho gaya|zeher kha/i;
+  /\b(cardiac arrest|heart attack|stroke|seizure|not breathing|can'?t breathe|difficulty breathing|trouble breathing|shortness of breath|breathlessness|chest pain|unconscious|severe bleeding|overdose|poisoning|choking|suicide attempt)\b|saans (nahi (aa rahi|aa rha|le pa)|phool)|dam ghut|behosh|lakwa|khudkushi|khoon (bohot|bahut) beh|bahut khoon beh|accident ho gaya|zeher kha|seene mein dard|seena dard|chhati mein dard/i;
 
 export const SYMPTOM_HISTORY_MAP: Array<[string, string]> = [
   ["stomach", "General Physician"], ["gastric", "General Physician"], ["abdomen", "General Physician"],

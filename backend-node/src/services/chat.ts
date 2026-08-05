@@ -4,7 +4,8 @@
  * Faithful port of the Python chat.py.
  */
 import { settings } from "../config.js";
-import { getDoctorRecommendations, findHospitals, generateMockDoctorsPublic, type DoctorDict } from "./doctorRepository.js";
+import { getDoctorRecommendations, findHospitals, type DoctorDict } from "./doctorRepository.js";
+import { geminiQuotaBlocked, noteGeminiQuotaError } from "./gemini.js";
 import { isMedicineQuery, lookupMedicine } from "./medicineInfo.js";
 
 export interface HistoryMessage {
@@ -97,6 +98,13 @@ async function callGemini(message: string, history?: HistoryMessage[]): Promise<
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
 
+  // A quota-exhausted key would otherwise cost every message the full retry
+  // budget before falling back to the (perfectly good) rule-based parser.
+  if (geminiQuotaBlocked()) {
+    console.warn("Gemini intent parse skipped — quota cool-down active; using rule-based parser");
+    return null;
+  }
+
   let historyCtx = "";
   if (history && history.length) {
     const turns = history.slice(-6);
@@ -127,10 +135,17 @@ async function callGemini(message: string, history?: HistoryMessage[]): Promise<
         // failure is diagnosable from server logs alone — e.g. an invalid
         // key, a retired model, or a quota/overload message all look
         // identical as a bare status code but very different in the body.
-        const body = (await resp.text().catch(() => "")).slice(0, 300);
-        if ((resp.status === 429 || resp.status === 503) && attempt < GEMINI_MAX_ATTEMPTS - 1) {
+        const body = (await resp.text().catch(() => "")).slice(0, 500);
+        if (resp.status === 429) {
+          // Quota exhaustion, not transient overload — retrying within this
+          // request can only make the user wait longer for the same answer.
+          noteGeminiQuotaError(body);
+          console.warn(`Gemini 429 (quota) — falling back to rule-based parser: ${body}`);
+          return null;
+        }
+        if (resp.status === 503 && attempt < GEMINI_MAX_ATTEMPTS - 1) {
           const backoff = Math.min(1000 * (attempt + 1), 3000);
-          console.warn(`Gemini ${resp.status}, retrying in ${backoff}ms: ${body}`);
+          console.warn(`Gemini 503 (overloaded), retrying in ${backoff}ms: ${body}`);
           await sleep(backoff);
           continue;
         }
@@ -300,6 +315,25 @@ function fallbackParse(message: string): Parsed {
     "unknown",
     'I\'m not sure I understood that. I can help with:\n• 🔍 **Finding doctors** — e.g. *"cardiologist in Delhi"*\n• 🏥 **Finding hospitals** — e.g. *"hospitals in Pune"*\n• 💊 **Health advice** — e.g. *"I have a headache"*\n• 📋 **Reading prescriptions** — tap the 📎 button\n\nCould you rephrase your question?'
   );
+}
+
+/**
+ * Overlay Gemini's parse on the rule-based one.
+ *
+ * Gemini wins on every field it actually answered, but a null/undefined from
+ * it must NOT erase what the rule-based parser already extracted. A plain
+ * `{...fast, ...gemini}` spread did erase it: asked about "dermatologist in
+ * Jharkhand", Gemini returns city:null (Jharkhand is a state, not a city),
+ * which wiped the perfectly usable "Jharkhand" the parser had found and
+ * dead-ended the search on "no doctors found" — a false negative caused
+ * purely by the merge, not by the data.
+ */
+function mergeParsed(fast: Parsed, gemini: Record<string, unknown>): Parsed {
+  const merged: Record<string, unknown> = { ...fast };
+  for (const [key, value] of Object.entries(gemini)) {
+    if (value !== null && value !== undefined) merged[key] = value;
+  }
+  return merged as unknown as Parsed;
 }
 
 function baseParsed(intent: string, reply: string): Parsed {
@@ -478,11 +512,16 @@ const SUGGEST_DOCTOR_PAT =
 const NEAR_ME_PAT = /\bnear\s+me\b|\bnearby\b|\bnear\s+my\s+(?:location|area|place|home)\b/i;
 
 /**
- * Search for doctors for a follow-up-style query. Under USE_REAL_DOCTOR_DB
- * (a shared production DB — never generate mock/Gemini doctors here), an
- * exact (speciality, city) match can legitimately come back empty even when
- * the city itself is fine; retry with speciality cleared to surface any real
- * doctor listed in that city before giving up entirely.
+ * Search for doctors for a follow-up-style query.
+ *
+ * This deliberately goes through getDoctorRecommendations rather than doing
+ * its own fallback, so every branch of handleMessage gets the identical
+ * chain (local DB → Google Places → Gemini → deterministic mock). Under
+ * USE_REAL_DOCTOR_DB (a shared production DB — never generate doctors there)
+ * that chain stops after the DB lookup, and an exact (speciality, city) match
+ * can legitimately come back empty even when the city itself is fine; retry
+ * with speciality cleared to surface any real doctor listed in that city
+ * before giving up entirely.
  */
 async function searchFollowupDoctors(
   speciality: string | null,
@@ -564,7 +603,7 @@ export async function handleMessage(
   if (isFollowupMessage(text) && history.length) {
     const [deepSpec, ctxCity] = extractSpecialtyFromHistory(history);
     const ctxSpec = resolveFollowupSpeciality(text, history, deepSpec);
-    const curCity = findCity(text.toLowerCase()) || ctxCity;
+    const curCity = findCity(text.toLowerCase()) || ctxCity || userCity;
     if (ctxSpec) {
       const { doctors, isGenerated, broadenedFrom } = await searchFollowupDoctors(ctxSpec, curCity);
       const replyTxt = followupReplyText("Here are", ctxSpec, curCity, doctors, isGenerated, broadenedFrom);
@@ -576,8 +615,9 @@ export async function handleMessage(
   // speciality if the real DB has nothing for it. Falls through to the
   // general parser if genuinely nothing is available (unchanged from before).
   if (MORE_DOCTORS_PAT.test(text)) {
-    const [deepSpec, city] = extractLastSearch(history);
+    const [deepSpec, histCity] = extractLastSearch(history);
     const spec = resolveFollowupSpeciality(text, history, deepSpec);
+    const city = histCity || userCity;
     if (spec || city) {
       const { doctors, isGenerated, broadenedFrom } = await searchFollowupDoctors(spec, city);
       if (doctors.length) {
@@ -597,7 +637,7 @@ export async function handleMessage(
   if (SUGGEST_DOCTOR_PAT.test(text)) {
     const [deepSpec, histCity] = extractLastSearch(history);
     const spec = resolveFollowupSpeciality(text, history, deepSpec);
-    const curCity = findCity(text.toLowerCase()) || histCity;
+    const curCity = findCity(text.toLowerCase()) || histCity || userCity;
     if (spec || curCity) {
       const { doctors, isGenerated, broadenedFrom } = await searchFollowupDoctors(spec, curCity);
       const reply = followupReplyText("Sure! Here are", spec, curCity, doctors, isGenerated, broadenedFrom);
@@ -616,7 +656,7 @@ export async function handleMessage(
   } else if (["find_doctor", "find_hospital"].includes(fastIntent) && fast.city) {
     const geminiResult = await callGemini(text, history);
     if (geminiResult && geminiResult.intent !== "unknown") {
-      parsed = { ...fast, ...geminiResult };
+      parsed = mergeParsed(fast, geminiResult);
     } else {
       parsed = fast;
     }
@@ -696,13 +736,17 @@ export async function handleMessage(
     );
     let doctors: any[] = [];
     if (showDoctors && speciality) {
-      doctors = (await getDoctorRecommendations(speciality, city, null)).doctors;
+      doctors = (await getDoctorRecommendations(speciality, city || userCity, null)).doctors;
     }
     return { reply, intent, doctors, hospitals: [] };
   }
 
-  // find_doctor / serious_symptom
-  let { doctors, isGenerated, resolvedCity } = await getDoctorRecommendations(speciality, city, maxFee);
+  // find_doctor / serious_symptom. `userCity` (shared GPS location) stands in
+  // when the message named no city — same substitution the hospital branch
+  // above already does.
+  const searchCity = city || userCity;
+  let { doctors, isGenerated, resolvedCity, assumedSpeciality } =
+    await getDoctorRecommendations(speciality, searchCity, maxFee);
 
   if (!doctors.length && Array.isArray(geminiDoctors) && geminiDoctors.length) {
     doctors = geminiDoctors
@@ -722,23 +766,26 @@ export async function handleMessage(
     isGenerated = true;
   }
 
-  if (intent === "find_doctor" && !doctors.length) {
-    if (city && !speciality) {
-      doctors = generateMockDoctorsPublic("General Physician", city, 5);
-      resolvedCity = city;
-      reply += `\n\n📍 *Showing available doctors in ${city}.*`;
-    }
-    if (!doctors.length) {
-      const parts = [speciality, city ? `in ${city}` : null, maxFee ? `under ₹${maxFee}` : null].filter(Boolean);
-      return {
-        reply: `❌ Sorry, no **${parts.length ? parts.join(" ") : "matching"}** doctors found. Try specifying a speciality like *"Gynecologist in Deoghar"*.`,
-        intent: "not_found", doctors: [], hospitals: [],
-      };
-    }
+  // A city-only search ("doctors in Kolkata") is answered by the repository's
+  // own fallback chain now, so there is no branch-local mock generation left
+  // here to bypass USE_REAL_DOCTOR_DB — it just reports what it assumed.
+  if (doctors.length && assumedSpeciality && searchCity) {
+    reply += `\n\n📍 *Showing available doctors in ${searchCity}.*`;
   }
 
-  if (doctors.length && city && resolvedCity && resolvedCity.toLowerCase() !== city.toLowerCase()) {
-    reply += `\n\n📍 *No doctors found specifically in ${city}. Showing results from nearby ${resolvedCity}.*`;
+  if (intent === "find_doctor" && !doctors.length) {
+    const parts = [speciality, searchCity ? `in ${searchCity}` : null, maxFee ? `under ₹${maxFee}` : null].filter(Boolean);
+    const hint = searchCity
+      ? `Try a nearby city, or a specific speciality like *"Gynecologist in ${searchCity}"*.`
+      : `Try adding your city, e.g. *"Gynecologist in Deoghar"*.`;
+    return {
+      reply: `❌ Sorry, no **${parts.length ? parts.join(" ") : "matching"}** doctors found. ${hint}`,
+      intent: "not_found", doctors: [], hospitals: [],
+    };
+  }
+
+  if (doctors.length && searchCity && resolvedCity && resolvedCity.toLowerCase() !== searchCity.toLowerCase()) {
+    reply += `\n\n📍 *No doctors found specifically in ${searchCity}. Showing results from nearby ${resolvedCity}.*`;
   }
 
   if (isGenerated && doctors.length) {
