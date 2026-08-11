@@ -1380,7 +1380,19 @@ function extractLocationFromMessage(msg: string): string | null {
             onChange={handleMedicineImage}
           />
 
-          {/* Voice input — rendered only where the Web Speech API exists. */}
+          <input
+            className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-doctar-500 focus:border-transparent"
+            placeholder={listening ? "🎙️ Listening… speak now" : "Ask about doctors, or attach a prescription 📎"}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && send()}
+            disabled={busy}
+          />
+
+          {/* Voice input — rendered only where the Web Speech API exists.
+              Sits on the right, between the text field and Send: dictating is
+              part of composing a message, so it belongs with the send action
+              rather than with the attach/scan inputs on the left. */}
           {voiceSupported && (
             <button
               onClick={listening ? stopListening : startListening}
@@ -1406,15 +1418,6 @@ function extractLocationFromMessage(msg: string): string | null {
               )}
             </button>
           )}
-
-          <input
-            className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-doctar-500 focus:border-transparent"
-            placeholder={listening ? "🎙️ Listening… speak now" : "Ask about doctors, or attach a prescription 📎"}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && send()}
-            disabled={busy}
-          />
 
           <button
             onClick={() => send()}
