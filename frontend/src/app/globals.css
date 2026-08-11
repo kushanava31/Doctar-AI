@@ -6,6 +6,24 @@ body {
   font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
   @apply text-slate-900 antialiased;
   min-height: 100vh;
+  min-height: 100dvh;
   background: linear-gradient(135deg, #f3e8ff 0%, #ede9fe 30%, #e0f2fe 70%, #f0fdf4 100%);
   background-attachment: fixed;
+}
+
+/**
+ * Full-height app shell.
+ *
+ * `100vh` is wrong on mobile: browsers count their own address bar inside it,
+ * so a 100vh column is taller than what's actually on screen and its bottom —
+ * here, the message input — sits below the fold with no way to scroll to it.
+ * `100dvh` tracks the *visible* viewport and shrinks as the address bar shows.
+ *
+ * Declared as plain CSS rather than Tailwind's `h-dvh` so the vh fallback is
+ * guaranteed to come first in the cascade; utility class ordering in the
+ * generated stylesheet isn't controlled by the order they appear in `class`.
+ */
+.app-viewport {
+  height: 100vh;
+  height: 100dvh;
 }

@@ -1098,11 +1098,12 @@ function extractLocationFromMessage(msg: string): string | null {
   const busy = loading || uploading;
 
   return (
-    <div className={`flex flex-col ${compact ? "h-full bg-white/60" : "h-screen bg-transparent"}`}>
-      {/* Header */}
+    <div className={`flex flex-col ${compact ? "h-full bg-white/60" : "app-viewport bg-transparent"}`}>
+      {/* Header — shrink-0 so it keeps its size and the message list absorbs
+          the flex slack, rather than the header stretching on tall screens. */}
       {!compact && (
-        <div className="bg-doctar-700 text-white px-6 py-4 shadow">
-          <div className="max-w-2xl mx-auto flex items-center gap-3">
+        <div className="shrink-0 bg-doctar-700 text-white px-4 py-2.5 sm:px-6 sm:py-4 shadow">
+          <div className="max-w-2xl mx-auto flex items-center gap-2 sm:gap-3">
             {/* Decorative only — deliberately not a link.
                 `draggable={false}` matters: a bare <img> is natively draggable,
                 so an imprecise click (mousedown, slight move, mouseup) starts an
@@ -1117,11 +1118,14 @@ function extractLocationFromMessage(msg: string): string | null {
               src="/doctar-logo.svg"
               alt="DOCTAR"
               draggable={false}
-              className="w-10 h-10 rounded-full pointer-events-none select-none"
+              className="w-8 h-8 sm:w-10 sm:h-10 rounded-full pointer-events-none select-none shrink-0"
             />
-            <div>
-              <h1 className="font-bold text-lg leading-tight">DOCTAR AI Assistant</h1>
-              <p className="text-doctar-200 text-sm">Find doctors · Upload prescription · Health guidance</p>
+            <div className="min-w-0">
+              <h1 className="font-bold text-base sm:text-lg leading-tight truncate">DOCTAR AI Assistant</h1>
+              {/* Hidden on phones: this subtitle wrapped to two lines on a
+                  narrow screen, and that extra height came straight out of the
+                  conversation area. The chips below say the same thing. */}
+              <p className="hidden sm:block text-doctar-200 text-sm">Find doctors · Upload prescription · Health guidance</p>
             </div>
 
             {/* ── Location selector — top-right of header ── */}
@@ -1131,17 +1135,17 @@ function extractLocationFromMessage(msg: string): string | null {
                 onClick={() => setShowPicker((v) => !v)}
                 className="flex items-center gap-2 group"
               >
-                <div className="text-right">
-                  <p className="text-[11px] text-doctar-300 leading-none tracking-wide uppercase">
+                <div className="text-right max-w-[110px] sm:max-w-none">
+                  <p className="hidden sm:block text-[11px] text-doctar-300 leading-none tracking-wide uppercase">
                     Your location
                   </p>
-                  <p className="text-[14px] font-medium text-white leading-tight mt-0.5 group-hover:text-doctar-200 transition-colors">
+                  <p className="text-[12px] sm:text-[14px] font-medium text-white leading-tight sm:mt-0.5 truncate group-hover:text-doctar-200 transition-colors">
                     {locStatus === "loading" || locationResolving ? "Detecting…" : userCity || "Set location"}
                   </p>
                 </div>
 
                 {/* Pin button — white squircle */}
-                <div className={`w-11 h-11 bg-white rounded-[18px] border border-gray-200 shadow-md flex items-center justify-center transition-all group-hover:shadow-lg ${
+                <div className={`w-9 h-9 sm:w-11 sm:h-11 shrink-0 bg-white rounded-[14px] sm:rounded-[18px] border border-gray-200 shadow-md flex items-center justify-center transition-all group-hover:shadow-lg ${
                   locStatus === "loading" || locationResolving ? "animate-pulse opacity-70" : ""
                 } ${showPicker ? "ring-2 ring-white/60" : ""}`}>
                   {locStatus === "loading" || locationResolving ? (
@@ -1183,8 +1187,10 @@ function extractLocationFromMessage(msg: string): string | null {
         </div>
       )}
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      {/* Messages — min-h-0 is required: a flex child defaults to min-height
+          auto, so a tall conversation would grow the column past the viewport
+          and push the input row off-screen instead of scrolling internally. */}
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 sm:py-4">
         <div className={`${compact ? "" : "max-w-2xl mx-auto"} space-y-4`}>
           {messages.map((m, i) => (
             <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -1296,7 +1302,7 @@ function extractLocationFromMessage(msg: string): string | null {
 
       {/* Suggestions */}
       {messages.length === 1 && (
-        <div className={`px-4 pb-2 ${compact ? "" : "max-w-2xl mx-auto w-full"}`}>
+        <div className={`shrink-0 px-4 pb-2 ${compact ? "" : "max-w-2xl mx-auto w-full"}`}>
           <div className="flex flex-wrap gap-2">
             {SUGGESTIONS.map((s) => (
               <button
@@ -1311,8 +1317,9 @@ function extractLocationFromMessage(msg: string): string | null {
         </div>
       )}
 
-      {/* Input */}
-      <div className="px-4 pb-4 pt-2 bg-white border-t border-gray-100">
+      {/* Input — shrink-0 keeps it pinned above the fold; pb uses the safe-area
+          inset so it clears the iOS home indicator / Android gesture bar. */}
+      <div className="shrink-0 px-4 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] bg-white border-t border-gray-100">
         {/* Compact mode: show current city + location picker trigger */}
         {compact && (
           <div ref={pickerRef} className="relative mb-2 flex items-center justify-between">
