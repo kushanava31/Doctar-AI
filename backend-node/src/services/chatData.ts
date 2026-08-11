@@ -111,6 +111,36 @@ export const MINOR_MEDICINE_MAP: Array<[string, string]> = [
   ["sujan", "Suji hui jagah upar rakhein. Injury ho toh thanda senkaan karein. Zyada ho toh doctor se milein."],
   ["chot", "Saaf kapde se haemostat karein. Saaf paani se dhoyein. Patti bandh karein. Gehri chot ho toh doctor se milein."],
   ["jal gaya", "10 minute thande behte paani ke neeche rakhein. Ice mat lagayein. Chhoti jalan ke alawa doctor se zaroor milein."],
+  // Common transliteration/spacing variants people actually type. The fuzzy
+  // phrase matcher in chat.ts catches most drift, but listing the highest-
+  // frequency spellings makes them exact matches (faster and always right).
+  ["sirdard", "Shant jagah pe aaram karein. Paani piyein aur aankhein band karke lete rahein. Zyada ho toh doctor se milein."],
+  ["sardard", "Shant jagah pe aaram karein. Paani piyein. Mathe pe thanda kapda rakhein. Zyada ho toh doctor se milein."],
+  ["sar dukh raha", "Aaram karein aur paani piyein. Mathe pe thanda kapda rakhein. Zyada ho toh doctor se milein."],
+  ["sar dukh rha", "Aaram karein aur paani piyein. Mathe pe thanda kapda rakhein. Zyada ho toh doctor se milein."],
+  ["sir dukh raha", "Aaram karein aur paani piyein. Shant jagah pe lete rahein. Zyada ho toh doctor se milein."],
+  ["matha dard", "Aaram karein, paani piyein. Mathe pe thanda kapda rakhein. Zyada ho toh doctor se milein."],
+  ["pait dard", "Aaram karein. Teekha aur bhari khana avoid karein. Garam paani piyein. Dard zyada ho toh doctor se milein."],
+  ["pait mein dard", "Aaram karein. Halka khana khayein. Garam paani piyein. Dard zyada ho toh doctor se milein."],
+  ["pet mai dard", "Aaram karein. Halka khana khayein. Garam paani piyein. Dard zyada ho toh doctor se milein."],
+  ["pet me dard", "Aaram karein. Halka khana khayein. Garam paani piyein. Dard zyada ho toh doctor se milein."],
+  ["petdard", "Aaram karein. Teekha khana avoid karein. Garam paani piyein. Zyada ho toh doctor se milein."],
+  ["pet dukh raha", "Aaram karein. Halka khana khayein. Garam paani piyein. Zyada ho toh doctor se milein."],
+  ["bukhaar", "Aaram karein aur paani zyada piyein. Mathe pe thanda geela kapda rakhein. 2 din se zyada rahe toh doctor se milein."],
+  ["bukhar", "Aaram karein aur paani zyada piyein. Mathe pe thanda geela kapda rakhein. 2 din se zyada rahe toh doctor se milein."],
+  ["bukhar aa raha", "Aaram karein, paani piyein. Thanda geela kapda mathe pe rakhein. Zyada ho toh doctor se milein."],
+  ["khansi ho rahi", "Garam paani mein shahad aur adrak milake piyein. Steam lein. Ek hafte se zyada ho toh doctor se milein."],
+  ["khaasi", "Garam paani mein shahad aur adrak milake piyein. Steam lein. Zyada ho toh doctor se milein."],
+  ["gala kharab", "Garam namak ke paani se gargle karein. Garam paani aur shahad piyein. Thanda avoid karein."],
+  ["gale mein kharash", "Garam namak ke paani se gargle karein. Shahad aur adrak wali chai piyein."],
+  ["kamar dukh raha", "Aaram karein aur bhari cheezein na uthayein. Garam senkaan karein. Zyada ho toh doctor se milein."],
+  ["ghutne mein dard", "Ghutne pe pressure mat daalein. Thanda ya garam senkaan karein. Sujan ho toh doctor se milein."],
+  ["daant dukh raha", "Garam namak ke paani se kulaa karein. Laung (clove) rakhein temporary relief ke liye. Dentist se milein."],
+  ["aankh dukh rahi", "Aankhein band karke aaram dein. Saaf paani se dhoyein. Doctor se milein agar dard jari rahe."],
+  ["kaan dukh raha", "Kaan pe garam kapda rakhein. Kaan mein kuch mat daalein. Doctor se milein."],
+  ["ulti ho rahi", "Thodi thodi der mein paani ya naariyal paani piyein. Solid khana avoid karein. Zyada ho toh doctor se milein."],
+  ["ji ghabra raha", "Taaza hawa lein. Thanda paani piyein. Bhaari khana avoid karein. Adrak ki chai help kar sakti hai."],
+  ["neend nahi aa rahi", "Sone se pehle screen band karein. Garam doodh piyein. Kamra thanda aur andhera rakhein. Chronic ho toh doctor se milein."],
 ];
 
 export const CITIES: string[] = [
@@ -294,10 +324,222 @@ export const EMERGENCY_KEYWORDS: Array<[string, string]> = [
   ["road accident", "trauma"], ["poisoning", "emergency"], ["zeher kha liya", "emergency"],
   ["overdose", "emergency"], ["severe burn", "trauma"], ["choking", "emergency"],
   ["dum ghut", "emergency"], ["suicide attempt", "emergency"], ["khudkushi", "emergency"],
+  // Common home emergencies — previously fell through to "I didn't understand".
+  ["nose bleeding", "emergency"], ["nosebleed", "emergency"], ["nose bleed", "emergency"],
+  ["bleeding from nose", "emergency"], ["naak se khoon", "emergency"],
+  ["fainted", "emergency"], ["fainting", "emergency"], ["passed out", "emergency"],
+  ["chakkar aakar gir", "emergency"],
+  ["anaphylaxis", "emergency"], ["allergic reaction", "emergency"],
+  ["snake bite", "trauma"], ["snakebite", "trauma"], ["saanp ne kaata", "trauma"],
+  ["saap ne kaata", "trauma"],
+  ["electric shock", "trauma"], ["bijli ka jhatka", "trauma"],
+  ["heat stroke", "emergency"], ["heatstroke", "emergency"],
+  ["drowning", "emergency"], ["doob gaya", "emergency"],
 ];
 
 export const EMERGENCY_PAT =
-  /\b(cardiac arrest|heart attack|stroke|seizure|not breathing|can'?t breathe|difficulty breathing|trouble breathing|shortness of breath|breathlessness|chest pain|unconscious|severe bleeding|overdose|poisoning|choking|suicide attempt)\b|saans (nahi (aa rahi|aa rha|le pa)|phool)|dam ghut|behosh|lakwa|khudkushi|khoon (bohot|bahut) beh|bahut khoon beh|accident ho gaya|zeher kha|seene mein dard|seena dard|chhati mein dard/i;
+  /\b(cardiac arrest|heart attack|stroke|seizure|fits? (?:aa rahe|aa rha|pad rahe)|not breathing|can'?t breathe|difficulty breathing|trouble breathing|shortness of breath|breathlessness|chest pain|unconscious|severe bleeding|overdose|poisoning|choking|suicide attempt|anaphylaxis|allergic reaction|snake ?bite|nose ?bleed(?:ing)?|bleeding from (?:the )?nose|fainted|fainting|passed out|electric shock|drowning|heat ?stroke)\b|saans (nahi (aa rahi|aa rha|le pa)|phool)|dam ghut|behosh|lakwa|khudkushi|khoon (bohot|bahut) beh|bahut khoon beh|accident ho gaya|zeher kha|seene mein dard|seena dard|chhati mein dard|naak se khoon|saanp ne kaata|saap ne kaata|bijli ka jhatka|doob gaya|chakkar aakar gir/i;
+
+// ── Home first aid ────────────────────────────────────────────────────────
+// Deliberately hardcoded, never Gemini-generated: a hallucinated first-aid
+// step is the kind of error that injures someone. Steps follow standard
+// Red Cross / AHA / NHS guidance, adapted to Indian emergency numbers.
+//
+// `severity` shapes the reply, not the content:
+//   "critical" — life-threatening; the reply leads with "call 108 NOW" and
+//                first aid is explicitly framed as what to do while waiting.
+//   "urgent"   — usually manageable at home; the reply leads with first aid
+//                and states plainly when to escalate. Using the critical
+//                framing for a nosebleed would train people to ignore it.
+export interface FirstAidGuide {
+  label: string;
+  severity: "critical" | "urgent";
+  steps: string[];
+  escalate?: string;
+}
+
+export const FIRST_AID_STEPS: Record<string, FirstAidGuide> = {
+  heart_attack: {
+    label: "Suspected heart attack",
+    severity: "critical",
+    steps: [
+      "Call 108 now. Do not drive the person yourself — ambulance crews can start treatment on the way.",
+      "Sit them down, leaning back with knees bent. Loosen tight clothing and keep them calm and still.",
+      "If they are conscious, not allergic to aspirin, and not on blood thinners, have them slowly chew one 300 mg aspirin.",
+      "Do not give food or water.",
+      "If they stop responding and are not breathing normally, start hands-only CPR: push hard and fast in the centre of the chest, about twice per second.",
+    ],
+  },
+  stroke: {
+    label: "Suspected stroke",
+    severity: "critical",
+    steps: [
+      "Call 108 now and note the exact time symptoms started — treatment decisions depend on it.",
+      "Check F.A.S.T. — Face drooping, Arm weakness, Speech difficulty, Time to call.",
+      "Lay them on their side with the head and shoulders slightly raised and supported.",
+      "Give nothing by mouth — no food, no water, and no medicine (not even aspirin; not every stroke is a clot).",
+      "Stay with them and watch their breathing until help arrives.",
+    ],
+  },
+  choking: {
+    label: "Choking",
+    severity: "critical",
+    steps: [
+      "Ask 'Are you choking?' If they can cough forcefully, encourage them to keep coughing and do not intervene.",
+      "If they cannot cough, speak or breathe, call 108 and act immediately.",
+      "Lean them forward and give up to 5 sharp back blows between the shoulder blades with the heel of your hand.",
+      "If that fails, give up to 5 abdominal thrusts: stand behind, place a fist just above the navel, and pull sharply inward and upward.",
+      "Alternate 5 back blows and 5 abdominal thrusts. If they become unresponsive, start CPR.",
+      "For a baby under 1 year: use back blows and chest thrusts only — never abdominal thrusts.",
+    ],
+  },
+  severe_bleeding: {
+    label: "Severe bleeding",
+    severity: "critical",
+    steps: [
+      "Call 108.",
+      "Press firmly and directly on the wound with a clean cloth or pad, using the flat of your hand.",
+      "Keep pressing without lifting to check. If blood soaks through, add more layers on top.",
+      "Raise the injured limb above heart level, unless you suspect a fracture.",
+      "If an object is embedded in the wound, do not pull it out — press firmly around it instead.",
+      "Lay them down, keep them warm, and watch for pale, clammy skin or confusion (signs of shock).",
+    ],
+  },
+  seizure: {
+    label: "Seizure / fits",
+    severity: "critical",
+    steps: [
+      "Stay calm and time the seizure from when it starts.",
+      "Move hard or sharp objects out of the way and cushion their head with something soft.",
+      "Do NOT restrain them, and do NOT put anything in their mouth — it is impossible to swallow your tongue, and objects cause injury.",
+      "Once the convulsions stop, gently roll them onto their side so the airway stays clear.",
+      "Call 108 if the seizure lasts over 5 minutes, repeats, is their first ever, or they are injured, pregnant, or do not wake up.",
+    ],
+  },
+  anaphylaxis: {
+    label: "Severe allergic reaction",
+    severity: "critical",
+    steps: [
+      "Call 108 immediately — severe allergic reactions can close the airway within minutes.",
+      "If they carry an adrenaline auto-injector (EpiPen), help them use it into the outer thigh straight away.",
+      "Lay them flat with legs raised. If they are struggling to breathe, let them sit up instead.",
+      "Remove the trigger if you can do so safely (for example, a bee sting — scrape it out sideways, don't squeeze).",
+      "If breathing stops, start CPR. A second adrenaline dose can be given after 5 minutes if there is no improvement.",
+    ],
+  },
+  snake_bite: {
+    label: "Snake bite",
+    severity: "critical",
+    steps: [
+      "Call 108 and get to a hospital with antivenom as fast as possible — this is the only real treatment.",
+      "Keep the person still and calm, and keep the bitten limb below heart level. Movement spreads venom faster.",
+      "Remove rings, bangles and watches near the bite before swelling starts.",
+      "Do NOT cut the wound, suck out venom, apply a tourniquet, or use ice or herbal pastes — all of these cause harm.",
+      "If you can do it safely, photograph the snake from a distance. Never try to catch or kill it.",
+    ],
+  },
+  poisoning: {
+    label: "Poisoning / overdose",
+    severity: "critical",
+    steps: [
+      "Call 108 immediately and keep the container, packet or strip to show the medical team.",
+      "Do NOT make them vomit unless a doctor specifically tells you to — many substances cause more damage coming back up.",
+      "If the substance is on the skin or in the eyes, rinse with plenty of clean running water for 15–20 minutes.",
+      "If they are unconscious but breathing, roll them onto their side.",
+      "If breathing stops, start CPR.",
+    ],
+  },
+  severe_burn: {
+    label: "Burn",
+    severity: "critical",
+    steps: [
+      "Stop the burning and move the person away from the source.",
+      "Cool the burn under cool (not ice-cold) running water for at least 20 minutes.",
+      "Remove rings, watches and tight clothing near the burn before swelling starts — but never peel off anything stuck to the skin.",
+      "Cover loosely with cling film or a clean, non-fluffy cloth.",
+      "Do NOT apply ice, toothpaste, butter, ghee, haldi, oil or ointments — these trap heat and cause infection.",
+    ],
+    escalate:
+      "Call 108 for burns that are large (bigger than the person's palm), deep, white or charred, or on the face, hands, genitals or airway, and for any burn in a baby or elderly person.",
+  },
+  nosebleed: {
+    label: "Nosebleed",
+    severity: "urgent",
+    steps: [
+      "Sit upright and lean slightly FORWARD — never tilt the head back, as that sends blood down the throat and causes vomiting.",
+      "Pinch the soft part of the nose (just below the bony bridge) firmly and continuously for 10 full minutes without releasing to check.",
+      "Breathe through the mouth while pinching.",
+      "Apply a cold compress or ice pack to the bridge of the nose.",
+      "Afterwards, avoid blowing or picking the nose, bending over, and heavy lifting for several hours.",
+    ],
+    escalate:
+      "Go to a hospital if the bleeding doesn't stop after 20 minutes of steady pressure, is very heavy, follows a head injury, or the person is on blood thinners.",
+  },
+  fainting: {
+    label: "Fainting",
+    severity: "urgent",
+    steps: [
+      "Lay the person flat on their back and raise their legs about 30 cm above heart level.",
+      "Loosen tight collars, belts and clothing, and make sure they have fresh air.",
+      "Most people come round within a minute — keep them lying down for a few more minutes, then let them sit up slowly.",
+      "Don't give food or water until they are fully alert.",
+    ],
+    escalate:
+      "Call 108 if they do not wake within 1 minute, are not breathing normally, fainted with chest pain or palpitations, are pregnant, or were injured in the fall.",
+  },
+  heat_stroke: {
+    label: "Heat stroke",
+    severity: "critical",
+    steps: [
+      "Call 108 — heat stroke is life-threatening and body temperature must come down fast.",
+      "Move them into shade or an air-conditioned room immediately.",
+      "Remove excess clothing and cool them aggressively: cool water over the skin, wet cloths, fanning, ice packs at the neck, armpits and groin.",
+      "If they are fully alert, give small sips of cool water or ORS. Never give fluids to someone drowsy or confused.",
+      "Keep cooling until help arrives or they feel cool to the touch.",
+    ],
+  },
+  electric_shock: {
+    label: "Electric shock",
+    severity: "critical",
+    steps: [
+      "Do NOT touch the person until the current is off — switch off the mains or the fuse first.",
+      "If you cannot cut the power, push them away from the source using a dry, non-conducting object such as a wooden stick. Never use anything metal or wet.",
+      "Call 108 — electric shock can cause heart rhythm problems that appear later even if they seem fine.",
+      "If they are unresponsive and not breathing normally, start CPR.",
+      "Cool any burns under running water and cover loosely.",
+    ],
+  },
+};
+
+/**
+ * Emergency phrase → first-aid topic. Separate from EMERGENCY_KEYWORDS
+ * (which maps to a *hospital* category) because "nosebleed" and "choking"
+ * are both hospital-type "emergency" but need completely different steps.
+ * Longest/most specific phrases first — first match wins.
+ */
+export const FIRST_AID_KEYWORDS: Array<[string, string]> = [
+  ["cardiac arrest", "heart_attack"], ["heart attack", "heart_attack"],
+  ["dil ka daura", "heart_attack"], ["chest pain", "heart_attack"],
+  ["seene mein dard", "heart_attack"], ["seena dard", "heart_attack"],
+  ["chhati mein dard", "heart_attack"],
+  ["stroke", "stroke"], ["paralysis", "stroke"], ["lakwa", "stroke"],
+  ["choking", "choking"], ["dum ghut", "choking"], ["dam ghut", "choking"],
+  ["severe bleeding", "severe_bleeding"], ["khoon bohot beh", "severe_bleeding"],
+  ["bahut khoon beh", "severe_bleeding"],
+  ["nose bleeding", "nosebleed"], ["nosebleed", "nosebleed"], ["nose bleed", "nosebleed"],
+  ["bleeding from nose", "nosebleed"], ["bleeding from the nose", "nosebleed"],
+  ["naak se khoon", "nosebleed"],
+  ["seizure", "seizure"], ["mirgi ka daura", "seizure"], ["fits", "seizure"],
+  ["anaphylaxis", "anaphylaxis"], ["allergic reaction", "anaphylaxis"],
+  ["snake bite", "snake_bite"], ["snakebite", "snake_bite"],
+  ["saanp ne kaata", "snake_bite"], ["saap ne kaata", "snake_bite"],
+  ["poisoning", "poisoning"], ["overdose", "poisoning"], ["zeher kha", "poisoning"],
+  ["severe burn", "severe_burn"], ["burn", "severe_burn"], ["jal gaya", "severe_burn"],
+  ["fainted", "fainting"], ["fainting", "fainting"], ["passed out", "fainting"],
+  ["behosh", "fainting"], ["chakkar aakar gir", "fainting"],
+  ["heat stroke", "heat_stroke"], ["heatstroke", "heat_stroke"],
+  ["electric shock", "electric_shock"], ["bijli ka jhatka", "electric_shock"],
+];
 
 export const SYMPTOM_HISTORY_MAP: Array<[string, string]> = [
   ["stomach", "General Physician"], ["gastric", "General Physician"], ["abdomen", "General Physician"],
@@ -436,6 +678,19 @@ export const MEDICAL_VOCAB: string[] = [
   "symptom", "diagnosis", "emergency",
   "fever", "headache", "cough", "diabetes",
   "stomach", "kidney", "thyroid", "vaccination",
+  // Broadened so single-word typos in common complaints self-correct before
+  // ever reaching the phrase matcher.
+  "ambulance", "injection", "tablet", "capsule", "syrup", "antibiotic",
+  "infection", "allergy", "allergic", "asthma", "migraine", "arthritis",
+  "pressure", "cholesterol", "pregnant", "pregnancy", "periods",
+  "vomiting", "nausea", "diarrhea", "diarrhoea", "constipation", "acidity",
+  "breathing", "breathless", "swelling", "bleeding", "burning", "itching",
+  "dizziness", "weakness", "fatigue", "insomnia", "anxiety", "depression",
+  "toothache", "backache", "stomachache", "earache", "sorethroat",
+  "dengue", "malaria", "typhoid", "jaundice", "tuberculosis", "pneumonia",
+  "appendicitis", "gastritis", "ulcer", "fracture", "sprain", "wound",
+  "seizure", "unconscious", "fainting", "nosebleed", "sunstroke",
+  "paracetamol", "ibuprofen", "antacid", "vitamin", "supplement",
 ];
 
 export const FUZZY_STOP_WORDS = new Set<string>([

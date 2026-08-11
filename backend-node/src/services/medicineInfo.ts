@@ -46,9 +46,29 @@ const KNOWN_MEDICINES = new Set<string>([
   "fluconazole", "forcan", "clotrimazole", "candid",
   "warfarin", "heparin", "acitrom",
   "prednisolone", "dexamethasone", "methylprednisolone",
-  "volini", "diclofenac", "voveran",
+  "volini", "diclofenac", "voveran", "moov", "iodex",
   "sertraline", "zoloft", "escitalopram", "nexito", "fluoxetine", "alprazolam", "alprax", "clonazepam",
   "albendazole", "zentel", "ivermectin",
+  // Rehydration — the single most important OTC category for Indian
+  // gastroenteritis/heat illness, and previously missing entirely.
+  "ors", "o.r.s", "oral rehydration salts", "electral", "enerzal", "walyte", "rehydration salts",
+  // Antispasmodics / period pain
+  "meftal", "meftal spas", "meftal-spas", "mefenamic acid", "drotaverine", "dicyclomine",
+  "buscopan", "cyclopam", "spasmo proxyvon",
+  // Cough & cold
+  "benadryl", "ascoril", "grilinctus", "honitus", "cofsils", "chericof",
+  "sinarest", "cheston cold", "d cold", "d-cold", "coldact", "vicks action 500",
+  "dextromethorphan", "guaifenesin", "ambroxol", "bromhexine", "terbutaline",
+  // Acidity (famotidine replaced ranitidine after the global NDMA recall)
+  "famotidine", "famocid", "rantac", "esomeprazole", "nexpro", "rabeprazole", "razo",
+  "gas o fast", "pudin hara", "sucralfate",
+  // Antidiarrhoeal
+  "loperamide", "imodium", "eldoper", "racecadotril", "redotil",
+  // Antihistamines
+  "levocetirizine", "levocet", "xyzal", "hydroxyzine", "atarax", "chlorpheniramine", "cpm",
+  // Supplements commonly asked about
+  "zincovit", "a to z", "supradyn", "dexorange", "autrin", "livogen", "folvite", "folic acid",
+  "iron tablet", "ferrous sulphate", "orofer",
 ]);
 
 function med(p: Omit<MedicineInfo, "disclaimer"> & { disclaimer?: string }): MedicineInfo {
@@ -296,6 +316,96 @@ const MEDICINE_DB: Record<string, MedicineInfo> = {
     warnings: "Overdose is the leading cause of acute liver failure — never exceed 4 g/day. Avoid alcohol.",
     consult_doctor_if: "Fever persists beyond 3 days, pain is severe, or you have liver disease.",
   }),
+  ors: med({
+    name: "ORS (Oral Rehydration Salts)", also_known_as: ["Electral", "Enerzal", "WHO-ORS", "Walyte"], type: "Powder sachet / Ready-to-drink liquid",
+    used_for: ["Dehydration from diarrhoea or vomiting", "Heat exhaustion", "Fluid loss from fever", "Rehydration after intense sweating"],
+    how_it_works: "Glucose and sodium in a fixed ratio use the gut's co-transport mechanism to pull water back into the body far faster than plain water can.",
+    common_dosage: "Dissolve one sachet in exactly 1 litre of clean/boiled water. Adults: 200–400 ml after each loose stool. Children: 50–100 ml after each loose stool, sipped slowly.",
+    available_otc: true, prescription_required: false,
+    common_side_effects: ["Mild nausea if drunk too quickly", "Vomiting if gulped rather than sipped"],
+    warnings: "Use the full litre of water — a stronger mix is dangerous, especially for children. Discard any solution left after 24 hours. Do not substitute sugary soft drinks or energy drinks, which worsen diarrhoea.",
+    consult_doctor_if: "There is no urine for 8+ hours, sunken eyes, extreme lethargy, blood in stools, or the child cannot keep any fluid down — these need urgent medical care.",
+  }),
+  "meftal spas": med({
+    name: "Meftal Spas (Mefenamic Acid 250 mg + Dicyclomine 10 mg)", also_known_as: ["Meftal-Spas", "Spasmonil", "Cyclopam"], type: "Tablet / Suspension",
+    used_for: ["Menstrual cramps (dysmenorrhoea)", "Abdominal cramps and spasms", "Intestinal colic", "Period pain"],
+    how_it_works: "Mefenamic acid (an NSAID) blocks the prostaglandins that cause cramping pain; dicyclomine relaxes the smooth muscle of the uterus and gut.",
+    common_dosage: "1 tablet 2–3 times daily after food, for no more than 2–3 days.",
+    available_otc: false, prescription_required: true,
+    common_side_effects: ["Drowsiness", "Dry mouth", "Nausea", "Stomach upset", "Dizziness"],
+    warnings: "Always take after food. Avoid in peptic ulcer, kidney disease, and during pregnancy. Do not drive if drowsy. Not for long-term use.",
+    consult_doctor_if: "Period pain is severe enough to need this every cycle, or you have stomach pain, black stools, or the pain is unusual for you.",
+  }),
+  loperamide: med({
+    name: "Loperamide", also_known_as: ["Imodium", "Eldoper", "Lopamide"], type: "Tablet / Capsule",
+    used_for: ["Acute short-term diarrhoea", "Traveller's diarrhoea", "Chronic diarrhoea under medical supervision"],
+    how_it_works: "Slows movement of the intestines, allowing more water to be absorbed from the stool.",
+    common_dosage: "Adults: 2 tablets (4 mg) initially, then 1 tablet (2 mg) after each loose stool; max 8 mg/day for self-treatment.",
+    available_otc: true, prescription_required: false,
+    common_side_effects: ["Constipation", "Abdominal cramps", "Dry mouth", "Dizziness"],
+    warnings: "Do NOT use if there is blood in the stool or high fever — in dysentery or bacterial infection it traps the infection inside. Not for children under 12 without medical advice. ORS matters far more than stopping the diarrhoea.",
+    consult_doctor_if: "Diarrhoea lasts more than 48 hours, or there is blood, mucus, high fever, or signs of dehydration.",
+  }),
+  famotidine: med({
+    name: "Famotidine", also_known_as: ["Famocid", "Topcid", "Rantac (reformulated)"], type: "Tablet",
+    used_for: ["Acidity and heartburn", "GERD / acid reflux", "Stomach and duodenal ulcers"],
+    how_it_works: "H2-receptor blocker — reduces stomach acid production by blocking histamine's effect on acid-producing cells.",
+    common_dosage: "20–40 mg once or twice daily, typically at bedtime or as directed.",
+    available_otc: true, prescription_required: false,
+    common_side_effects: ["Headache", "Constipation or diarrhoea", "Dizziness"],
+    warnings: "Widely used in place of ranitidine, which was withdrawn globally over NDMA contamination. Dose reduction is needed in kidney disease.",
+    consult_doctor_if: "Symptoms persist beyond 2 weeks, you have difficulty swallowing, unexplained weight loss, or black stools.",
+  }),
+  levocetirizine: med({
+    name: "Levocetirizine", also_known_as: ["Levocet", "Xyzal", "Teczine", "1-Al"], type: "Tablet / Syrup",
+    used_for: ["Allergic rhinitis", "Hives / urticaria", "Skin allergies", "Itching", "Dust and pollen allergy"],
+    how_it_works: "Third-generation antihistamine — the active half of cetirizine, blocking histamine with less sedation at an equivalent dose.",
+    common_dosage: "Adults: 5 mg once daily at night. Children 6–12: 2.5 mg once daily.",
+    available_otc: true, prescription_required: false,
+    common_side_effects: ["Mild drowsiness", "Dry mouth", "Fatigue", "Headache"],
+    warnings: "Avoid alcohol. May still cause drowsiness — be cautious when driving. Reduce dose in kidney impairment.",
+    consult_doctor_if: "Allergy symptoms persist beyond 2 weeks, or you develop breathing difficulty or facial swelling (seek emergency care).",
+  }),
+  benadryl: med({
+    name: "Benadryl Cough Formula (Diphenhydramine + Ammonium Chloride + Sodium Citrate)", also_known_as: ["Benadryl syrup", "Cough syrup"], type: "Syrup",
+    used_for: ["Dry and wet cough", "Cough with chest congestion", "Loosening mucus"],
+    how_it_works: "Diphenhydramine (an antihistamine) suppresses the cough reflex; ammonium chloride and sodium citrate act as expectorants to thin and loosen mucus.",
+    common_dosage: "Adults: 10 ml every 4–6 hours, max 4 doses/day. Children: as directed by a doctor.",
+    available_otc: true, prescription_required: false,
+    common_side_effects: ["Drowsiness", "Dry mouth", "Dizziness", "Blurred vision"],
+    warnings: "Causes significant drowsiness — do not drive or operate machinery. Avoid alcohol. Not recommended for children under 6 without medical advice. Some older cough syrups contain codeine and are restricted — check the label.",
+    consult_doctor_if: "Cough lasts more than 1 week, is accompanied by high fever or breathlessness, or you cough up blood.",
+  }),
+  sinarest: med({
+    name: "Sinarest (Paracetamol + Phenylephrine + Chlorpheniramine)", also_known_as: ["Cheston Cold", "D-Cold Total", "Coldact", "Vicks Action 500"], type: "Tablet / Syrup",
+    used_for: ["Common cold", "Blocked or runny nose", "Sneezing", "Fever with cold", "Sinus congestion"],
+    how_it_works: "Triple action — paracetamol reduces fever and pain, phenylephrine narrows nasal blood vessels to relieve congestion, chlorpheniramine blocks histamine to stop sneezing and a runny nose.",
+    common_dosage: "1 tablet every 6–8 hours after food; max 3 tablets/day, for no more than 3–5 days.",
+    available_otc: true, prescription_required: false,
+    common_side_effects: ["Drowsiness", "Dry mouth", "Dizziness", "Increased heart rate"],
+    warnings: "Contains paracetamol — never combine with Dolo/Crocin or any other paracetamol product (risk of liver damage). Avoid in high blood pressure, heart disease, or glaucoma because of the phenylephrine. Causes drowsiness.",
+    consult_doctor_if: "Symptoms last more than 5 days, fever exceeds 102°F, or you develop breathlessness or chest pain.",
+  }),
+  zincovit: med({
+    name: "Zincovit (Multivitamin + Multimineral with Zinc)", also_known_as: ["A to Z", "Supradyn", "Becozinc"], type: "Tablet / Syrup",
+    used_for: ["Vitamin and mineral deficiency", "Recovery after illness", "General weakness and fatigue", "Supporting immunity"],
+    how_it_works: "Supplies vitamins A, B-complex, C, D, E along with zinc and other trace minerals that act as cofactors in immunity, healing, and energy metabolism.",
+    common_dosage: "1 tablet daily after a meal, or as directed.",
+    available_otc: true, prescription_required: false,
+    common_side_effects: ["Nausea if taken on an empty stomach", "Metallic taste", "Constipation"],
+    warnings: "A supplement, not a substitute for a balanced diet. Avoid taking multiple multivitamins together — fat-soluble vitamins (A, D, E) accumulate and can become toxic.",
+    consult_doctor_if: "Weakness or fatigue persists — it may indicate anaemia, thyroid disease, or diabetes that needs proper testing rather than supplements.",
+  }),
+  dexorange: med({
+    name: "Dexorange (Iron + Folic Acid + Vitamin B12)", also_known_as: ["Autrin", "Livogen", "Orofer", "Fefol"], type: "Syrup / Capsule",
+    used_for: ["Iron-deficiency anaemia", "Anaemia in pregnancy", "Low haemoglobin", "Nutritional anaemia"],
+    how_it_works: "Supplies iron for haemoglobin production, plus folic acid and B12 which are required for red blood cells to mature properly.",
+    common_dosage: "Adults: 10–15 ml syrup or 1 capsule once or twice daily, ideally on an empty stomach or with vitamin C for absorption.",
+    available_otc: true, prescription_required: false,
+    common_side_effects: ["Black stools (harmless and expected)", "Constipation", "Nausea", "Metallic taste"],
+    warnings: "Take 2 hours apart from tea, coffee, milk, calcium, and antacids — all of these block iron absorption. Keep away from children: iron overdose is a leading cause of poisoning deaths in young children.",
+    consult_doctor_if: "Haemoglobin doesn't improve after 4–6 weeks, or you have heavy periods, black tarry stools, or blood in stools — the cause of the anaemia needs investigating.",
+  }),
 };
 
 const MEDICINE_ALIASES: Record<string, string> = {
@@ -323,6 +433,31 @@ const MEDICINE_ALIASES: Record<string, string> = {
   framycetin: "soframycin",
   combiflam: "combiflam",
   aspirin: "aspirin", disprin: "aspirin",
+  // Rehydration
+  "o.r.s": "ors", "oral rehydration salts": "ors", "rehydration salts": "ors",
+  electral: "ors", enerzal: "ors", walyte: "ors", "ors powder": "ors",
+  // Antispasmodic / period pain
+  meftal: "meftal spas", "meftal-spas": "meftal spas", spasmonil: "meftal spas",
+  cyclopam: "meftal spas", "mefenamic acid": "meftal spas", dicyclomine: "meftal spas",
+  // Antidiarrhoeal
+  imodium: "loperamide", eldoper: "loperamide", lopamide: "loperamide",
+  // Acidity — ranitidine brands were reformulated to famotidine after the
+  // global NDMA recall, so point them at the current molecule.
+  famocid: "famotidine", topcid: "famotidine", rantac: "famotidine",
+  // Antihistamine
+  levocet: "levocetirizine", xyzal: "levocetirizine", teczine: "levocetirizine",
+  "1-al": "levocetirizine",
+  // Cough & cold
+  "benadryl cough": "benadryl", "benadryl syrup": "benadryl",
+  "cheston cold": "sinarest", "d cold": "sinarest", "d-cold": "sinarest",
+  "d cold total": "sinarest", "d-cold total": "sinarest", coldact: "sinarest",
+  "vicks action 500": "sinarest", "vicks action": "sinarest",
+  // Supplements
+  "a to z": "zincovit", supradyn: "zincovit", becozinc: "zincovit",
+  autrin: "dexorange", livogen: "dexorange", orofer: "dexorange", fefol: "dexorange",
+  "iron tablet": "dexorange", "ferrous sulphate": "dexorange",
+  // Brand → molecule shortcuts that were missing
+  calpol: "paracetamol", tylenol: "paracetamol", pcm: "paracetamol",
 };
 
 // ── Intent detection ──────────────────────────────────────────────────────

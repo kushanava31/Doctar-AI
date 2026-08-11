@@ -19,8 +19,16 @@ export default function ChatWidget() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         ) : (
+          /* pointer-events-none so the click always reaches the button, and
+             draggable={false} so the icon can't be dragged out of it (dropping
+             it back on the tab would navigate to the raw SVG). */
           /* eslint-disable-next-line @next/next/no-img-element */
-          <img src="/doctar-logo.svg" alt="DOCTAR" className="w-8 h-8" />
+          <img
+            src="/doctar-logo.svg"
+            alt="DOCTAR"
+            draggable={false}
+            className="w-8 h-8 pointer-events-none select-none"
+          />
         )}
       </button>
 
@@ -30,7 +38,12 @@ export default function ChatWidget() {
           <div className="bg-doctar-700 text-white px-4 py-3 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/doctar-logo.svg" alt="DOCTAR" className="w-7 h-7" />
+              <img
+                src="/doctar-logo.svg"
+                alt="DOCTAR"
+                draggable={false}
+                className="w-7 h-7 pointer-events-none select-none"
+              />
               <div>
                 <p className="font-semibold text-sm leading-tight">DOCTAR AI</p>
                 <p className="text-doctar-200 text-xs">Health Assistant</p>

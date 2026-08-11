@@ -7,6 +7,13 @@ import { settings } from "../config.js";
 import { getDoctorRecommendations, findHospitals, type DoctorDict } from "./doctorRepository.js";
 import { geminiQuotaBlocked, noteGeminiQuotaError } from "./gemini.js";
 import { isMedicineQuery, lookupMedicine } from "./medicineInfo.js";
+import {
+  extractCondition,
+  formatSymptomReply,
+  isSymptomInfoQuery,
+  lookupSymptomInfo,
+  type SymptomInfo,
+} from "./symptomInfo.js";
 
 export interface HistoryMessage {
   role: string;
@@ -19,6 +26,7 @@ export interface ChatResult {
   doctors: any[];
   hospitals: any[];
   medicine_info?: any;
+  symptom_info?: SymptomInfo;
 }
 
 // ── In-memory cache (30 min TTL) ──────────────────────────────────────────
@@ -189,6 +197,9 @@ import {
   FAQ_KEYWORDS,
   EMERGENCY_KEYWORDS,
   EMERGENCY_PAT,
+  FIRST_AID_KEYWORDS,
+  FIRST_AID_STEPS,
+  type FirstAidGuide,
   SYMPTOM_HISTORY_MAP,
   SYMPTOM_TO_SPECIALTY_SORTED,
   TYPO_MAP,
@@ -216,17 +227,58 @@ const DOCTOR_SEEK =
 const COMPLAINT_PAT =
   /\b(mujhe|mera|meri|mere|humein|hamara|hamari)\b|\b(ho\s*rha|ho\s*rhi|hota\s*hai|hoti\s*hai|lag\s*rha|lag\s*rhi|aa\s*rha|aa\s*rhi|rehta|rehti|hua|hui|tha|thi)\b|\bi\s+(have|am\s+having|feel|got|suffering|experiencing)\b|\bmy\s+\w+\s+(is|are|hurts|aches|burning|itching|swollen)\b/i;
 
+/**
+ * Emergency reply text, with hardcoded home first aid when we recognise the
+ * situation. First aid is always framed as what to do *while help is coming* —
+ * it never replaces calling 108.
+ *
+ * "urgent" guides (nosebleed, fainting) lead with the steps instead of a
+ * red-alert banner: shouting "MEDICAL EMERGENCY, call an ambulance" at someone
+ * with a nosebleed is the fastest way to teach them to ignore the banner when
+ * it actually matters.
+ */
+function emergencyReply(guide?: FirstAidGuide): string {
+  const CRITICAL_HEADER =
+    "🚨 **This sounds like a medical emergency.** Please call an ambulance (📞 108 / 112) or rush to the nearest emergency hospital right away.";
+
+  if (!guide) {
+    return `${CRITICAL_HEADER} Here are emergency hospitals near you:`;
+  }
+
+  const steps = guide.steps.map((s, i) => `${i + 1}. ${s}`).join("\n");
+
+  if (guide.severity === "urgent") {
+    const parts = [
+      `⚡ **First aid for ${guide.label.toLowerCase()} — do this now:**\n${steps}`,
+    ];
+    if (guide.escalate) parts.push(`🚨 **${guide.escalate}**`);
+    parts.push(
+      "📞 *If you're unsure or it's getting worse, call 108 — it's always better to check.*\n\nNearby hospitals if you need them:"
+    );
+    return parts.join("\n\n");
+  }
+
+  const parts = [
+    CRITICAL_HEADER,
+    `⚡ **While help is on the way — ${guide.label.toLowerCase()}:**\n${steps}`,
+  ];
+  if (guide.escalate) parts.push(`🚨 **${guide.escalate}**`);
+  parts.push("*First aid supports emergency care — it does not replace it. Keep 108 on the line if you can.*\n\nEmergency hospitals near you:");
+  return parts.join("\n\n");
+}
+
 function fallbackParse(message: string): Parsed {
   const lower = message.toLowerCase();
 
   // True medical emergencies
   if (EMERGENCY_PAT.test(lower)) {
     const hospitalType = findInPairs(EMERGENCY_KEYWORDS, (kw) => lower.includes(kw)) || "emergency";
+    const firstAidKey = findInPairs(FIRST_AID_KEYWORDS, (kw) => lower.includes(kw));
+    const guide = firstAidKey ? FIRST_AID_STEPS[firstAidKey] : undefined;
     return {
       intent: "emergency", speciality: null, city: null, max_fee: null,
       is_serious: true, generate_doctors: false, doctors: null, hospital_type: hospitalType,
-      reply:
-        "🚨 **This sounds like a medical emergency.** Please call an ambulance (📞 108 / 112) or rush to the nearest emergency hospital right away. Here are emergency hospitals near you:",
+      reply: emergencyReply(guide),
     };
   }
 
@@ -485,20 +537,271 @@ function getCloseMatch(word: string, vocab: string[], cutoff: number): string | 
   return best;
 }
 
+/**
+ * Every word appearing in any phrase the rule-based matcher understands.
+ *
+ * These are real domain vocabulary and must never be "corrected" into
+ * something else. Without this guard the word-level pass silently rewrote
+ * meaningful terms into near-neighbours from MEDICAL_VOCAB — "mental" became
+ * "dental" (0.83 similarity), so "mental health doctor" routed to a Dentist
+ * instead of a Psychiatrist. Protecting known-good words is a far more robust
+ * fix than trying to enumerate every bad pair.
+ */
+const PROTECTED_WORDS: Set<string> = (() => {
+  const set = new Set<string>();
+  const addPhrase = (p: string) => {
+    for (const w of p.toLowerCase().split(/\s+/)) {
+      const clean = w.replace(/[^a-z]/g, "");
+      if (clean.length >= 3) set.add(clean);
+    }
+  };
+  for (const [k] of SPECIALITY_KEYWORDS) addPhrase(k);
+  for (const [k] of SYMPTOM_HISTORY_MAP) addPhrase(k);
+  for (const [k] of MINOR_MEDICINE_MAP) addPhrase(k);
+  for (const [k] of EMERGENCY_KEYWORDS) addPhrase(k);
+  for (const [k] of HOSPITAL_TYPE_KEYWORDS) addPhrase(k);
+  for (const kw of HOSPITAL_KEYWORDS) addPhrase(kw);
+  for (const c of CITIES) addPhrase(c);
+  return set;
+})();
+
 function fuzzyCorrectWord(word: string): string {
   if (word.length < 5) return word;
   const lw = word.toLowerCase();
   if (FUZZY_STOP_WORDS.has(lw)) return word;
   if (MEDICAL_VOCAB.includes(lw)) return word;
+  if (PROTECTED_WORDS.has(lw)) return word;
   const match = getCloseMatch(lw, MEDICAL_VOCAB, 0.82);
   return match ?? word;
 }
 
-function normalizeTypos(text: string): string {
+// ── Hinglish phrase correction ────────────────────────────────────────────
+// fuzzyCorrectWord above only rescues single English words against
+// MEDICAL_VOCAB. The Hinglish tables are matched by exact substring, so a
+// misspelt *phrase* ("shir dard" for "sir dard", "pait dard" for "pet dard")
+// used to hit neither mechanism and dead-ended on "I didn't understand that".
+//
+// Two stages, cheapest and most precise first:
+//   1. Transliteration-normalised exact match. Roman Hindi drifts in
+//      predictable ways (sh/s, ph/f, z/j, v/w, aa/a, ai/e, doubled letters,
+//      spacing), so normalising both sides and comparing exactly catches most
+//      real-world drift with no false-positive risk.
+//   2. Ratcliff/Obershelp fuzzy match for genuine typos the normaliser can't
+//      model ("pet me dard" → "pet mein dard").
+
+/** Every phrase the rule-based matcher understands, longest-specific first. */
+const FUZZY_PHRASES: string[] = (() => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (k: string) => {
+    const key = k.toLowerCase().trim();
+    if (key && !seen.has(key)) { seen.add(key); out.push(key); }
+  };
+  for (const [k] of SPECIALITY_KEYWORDS) add(k);
+  for (const [k] of SYMPTOM_HISTORY_MAP) add(k);
+  for (const [k] of MINOR_MEDICINE_MAP) add(k);
+  // Emergency phrases too — a typo'd "chest pian" should still reach the
+  // emergency branch rather than falling through to "I didn't understand".
+  for (const [k] of EMERGENCY_KEYWORDS) add(k);
+  return out;
+})();
+
+/** Collapse predictable Roman-Hindi transliteration drift to a comparison key. */
+function translitKey(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z]/g, "")   // also drops spaces: "sirdard" ≡ "sir dard"
+    .replace(/ph/g, "f")
+    .replace(/sh/g, "s")
+    .replace(/z/g, "j")
+    .replace(/v/g, "w")
+    .replace(/ee/g, "i")
+    .replace(/oo/g, "u")
+    .replace(/ai/g, "e")
+    .replace(/(.)\1+/g, "$1")  // doubled letters → single (bukhaar → bukhar)
+    .replace(/y$/, "i");
+}
+
+/** Speciality a phrase resolves to, for collision detection. */
+function phraseSpeciality(phrase: string): string | null {
+  for (const [k, v] of SPECIALITY_KEYWORDS) if (k === phrase) return v;
+  for (const [k, v] of SYMPTOM_HISTORY_MAP) if (k === phrase) return v;
+  return null;
+}
+
+/**
+ * translit key → canonical phrase. Keys claimed by phrases that mean
+ * genuinely different things are dropped rather than guessed at — silently
+ * rewriting "pair mein dard" (leg) to "pet mein dard" (stomach) would be
+ * worse than not correcting at all.
+ */
+const TRANSLIT_INDEX: Map<string, string> = (() => {
+  const byKey = new Map<string, string[]>();
+  for (const phrase of FUZZY_PHRASES) {
+    const key = translitKey(phrase);
+    if (key.length < 4) continue;   // too short to disambiguate safely
+    const list = byKey.get(key);
+    if (list) list.push(phrase);
+    else byKey.set(key, [phrase]);
+  }
+
+  const index = new Map<string, string>();
+  for (const [key, phrases] of byKey) {
+    if (phrases.length === 1) { index.set(key, phrases[0]); continue; }
+    const specialities = new Set(phrases.map(phraseSpeciality).filter(Boolean));
+    if (specialities.size > 1) continue;   // ambiguous — don't guess
+    index.set(key, phrases[0]);            // same meaning; first is most specific
+  }
+  return index;
+})();
+
+/**
+ * Sorted-letter key, for catching transposition typos ("bukahr" → "bukhar").
+ *
+ * Adjacent-key swaps are among the most common typos, but Ratcliff/Obershelp
+ * scores them badly — "bukahr"/"bukhar" is only 0.83, below the cutoff — and
+ * lowering the cutoff far enough to catch them lets meaning-changing pairs
+ * through. Comparing letter multisets targets exactly transpositions and
+ * nothing else.
+ */
+function anagramKey(s: string): string {
+  return s.toLowerCase().replace(/[^a-z]/g, "").split("").sort().join("");
+}
+
+/** Anagram key → canonical phrase; ambiguous keys dropped, as with translit. */
+const ANAGRAM_INDEX: Map<string, string> = (() => {
+  const byKey = new Map<string, string[]>();
+  for (const phrase of FUZZY_PHRASES) {
+    const key = anagramKey(phrase);
+    if (key.length < 5) continue;
+    const list = byKey.get(key);
+    if (list) list.push(phrase);
+    else byKey.set(key, [phrase]);
+  }
+  const index = new Map<string, string>();
+  for (const [key, phrases] of byKey) {
+    if (phrases.length === 1) { index.set(key, phrases[0]); continue; }
+    const specialities = new Set(phrases.map(phraseSpeciality).filter(Boolean));
+    if (specialities.size > 1) continue;
+    index.set(key, phrases[0]);
+  }
+  return index;
+})();
+
+const MAX_PHRASE_WORDS = 4;
+// 0.90, not 0.85. At 0.85 meaning-changing near-neighbours slipped through —
+// "pain doctor"/"brain doctor" score 0.87 and "health doctor"/"heart doctor"
+// 0.88. Genuine typos ("chest pian", "hart attack", "kamar dardh") all still
+// score ≥ 0.90, so the tighter cutoff costs nothing real.
+const PHRASE_FUZZY_CUTOFF = 0.9;
+/** Below this, a fuzzy edit is as likely to change meaning as to fix a typo. */
+const MIN_FUZZY_PHRASE_LEN = 6;
+/** Candidates bucketed by word count so an n-gram only compares against its own size. */
+const PHRASES_BY_WORD_COUNT: Map<number, string[]> = (() => {
+  const m = new Map<number, string[]>();
+  for (const p of FUZZY_PHRASES) {
+    const n = p.split(/\s+/).length;
+    if (n > MAX_PHRASE_WORDS) continue;
+    const list = m.get(n);
+    if (list) list.push(p);
+    else m.set(n, [p]);
+  }
+  return m;
+})();
+
+const CANONICAL_PHRASES = new Set(FUZZY_PHRASES);
+
+/** Best fuzzy phrase match for an n-gram, or null. */
+function closestPhrase(gram: string, wordCount: number): string | null {
+  const candidates = PHRASES_BY_WORD_COUNT.get(wordCount);
+  if (!candidates) return null;
+  let best: string | null = null;
+  let bestScore = PHRASE_FUZZY_CUTOFF;
+  for (const cand of candidates) {
+    // Cheap length gate — a phrase differing by >30% in length can't clear
+    // the cutoff, and skipping it avoids the O(n²) block match.
+    if (Math.abs(cand.length - gram.length) / Math.max(cand.length, gram.length) > 0.3) continue;
+    const score = seqRatio(gram, cand);
+    if (score >= bestScore) { bestScore = score; best = cand; }
+  }
+  return best;
+}
+
+/** Rewrite misspelt Hinglish/English symptom phrases to their canonical form. */
+function fuzzyCorrectPhrases(text: string): string {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (!words.length) return text;
+
+  const out: string[] = [];
+  let i = 0;
+  while (i < words.length) {
+    let consumed = 0;
+    let replacement: string | null = null;
+
+    // Longest n-gram first, so "sir mein dard" wins over "dard".
+    for (let n = Math.min(MAX_PHRASE_WORDS, words.length - i); n >= 1 && !replacement; n--) {
+      const slice = words.slice(i, i + n);
+      const gram = slice.join(" ").toLowerCase();
+
+      // Already canonical — emit it verbatim and consume the WHOLE phrase.
+      // Consuming only the first word here used to leave the tail to be
+      // re-scanned on its own, and a fragment of a good phrase fuzzy-matches
+      // dangerously well: "chest pain doctor" → "chest" + "pain doctor",
+      // and "pain doctor" then matched "brain doctor".
+      if (CANONICAL_PHRASES.has(gram)) {
+        out.push(...slice);
+        consumed = n;
+        replacement = "";   // sentinel: handled, don't fall through
+        break;
+      }
+      if (slice.every((w) => FUZZY_STOP_WORDS.has(w.toLowerCase()))) continue;
+      if (gram.replace(/[^a-z]/gi, "").length < 4) continue;
+
+      const key = translitKey(gram);
+      const viaTranslit = key.length >= 4 ? TRANSLIT_INDEX.get(key) : undefined;
+      if (viaTranslit && viaTranslit !== gram) {
+        replacement = viaTranslit;
+        consumed = n;
+        break;
+      }
+
+      const anaKey = anagramKey(gram);
+      const viaAnagram = anaKey.length >= 5 ? ANAGRAM_INDEX.get(anaKey) : undefined;
+      if (viaAnagram && viaAnagram !== gram) {
+        replacement = viaAnagram;
+        consumed = n;
+        break;
+      }
+
+      if (gram.length >= MIN_FUZZY_PHRASE_LEN) {
+        const viaFuzzy = closestPhrase(gram, n);
+        if (viaFuzzy && viaFuzzy !== gram) {
+          replacement = viaFuzzy;
+          consumed = n;
+        }
+      }
+    }
+
+    if (replacement) {
+      out.push(replacement);
+      i += consumed;
+    } else if (consumed) {
+      i += consumed;   // canonical phrase already pushed above
+    } else {
+      out.push(words[i]);
+      i += 1;
+    }
+  }
+  return out.join(" ");
+}
+
+/** Exported for tests — the typo/phrase pipeline is easiest to tune in isolation. */
+export function normalizeTypos(text: string): string {
   for (const [pattern, replacement] of TYPO_MAP) {
     text = text.replace(pattern, replacement);
   }
-  return text.split(/\s+/).map(fuzzyCorrectWord).join(" ");
+  const wordCorrected = text.split(/\s+/).map(fuzzyCorrectWord).join(" ");
+  return fuzzyCorrectPhrases(wordCorrected);
 }
 
 // Tightened to require an actual doctor/specialist mention alongside "more/
@@ -585,6 +888,24 @@ export async function handleMessage(
       `🩺 **See a doctor if:** ${info.consult_doctor_if ?? "—"}\n\n` +
       `*${info.disclaimer ?? ""}*`;
     return { reply: replyMd, intent: "medicine_info", doctors: [], hospitals: [], medicine_info: info };
+  }
+
+  // Symptom / condition information query ("symptoms of dengue"). Checked
+  // before fallbackParse so an informational question about an emergency
+  // condition ("heart attack symptoms") returns the symptom list rather than
+  // being swept into the emergency flow by EMERGENCY_PAT. The reply still
+  // leads with the 108 red flags — see symptomInfo.ts.
+  if (isSymptomInfoQuery(message.trim())) {
+    const condition = extractCondition(message.trim());
+    console.log(`🩺 Symptom info query detected: ${condition}`);
+    const info = await lookupSymptomInfo(condition);
+    return {
+      reply: formatSymptomReply(info),
+      intent: "symptom_info",
+      doctors: [],
+      hospitals: [],
+      symptom_info: info,
+    };
   }
 
   // "near me" → substitute user's city

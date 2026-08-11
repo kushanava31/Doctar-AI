@@ -123,12 +123,23 @@ function HospitalCard({ h }: { h: Hospital }) {
           <span className="text-xs text-gray-500 truncate">📞 {h.phone}</span>
         )}
       </div>
-      <button
-        onClick={() => window.open(`https://www.google.com/maps/search/${encodeURIComponent(h.name + " " + h.city)}`, "_blank")}
-        className="mt-2 w-full bg-doctar-600 hover:bg-doctar-700 text-white text-sm font-medium py-1.5 rounded-lg transition-colors"
-      >
-        🗺️ Get Directions
-      </button>
+      <div className="mt-2 flex gap-2">
+        <button
+          onClick={() => window.open(`https://www.google.com/maps/search/${encodeURIComponent(h.name + " " + h.city)}`, "_blank")}
+          className="flex-1 bg-doctar-600 hover:bg-doctar-700 text-white text-sm font-medium py-1.5 rounded-lg transition-colors"
+        >
+          🗺️ Get Directions
+        </button>
+        {/* A real <a href="tel:"> rather than window.location — mobile browsers
+            handle the former reliably, and it keeps the control usable via
+            long-press / "copy number" on desktop where there's no dialer. */}
+        <a
+          href="tel:108"
+          className="flex-1 flex items-center justify-center bg-red-600 hover:bg-red-700 text-white text-sm font-semibold py-1.5 rounded-lg transition-colors"
+        >
+          📞 Call Ambulance
+        </a>
+      </div>
     </div>
   );
 }
@@ -315,6 +326,43 @@ function renderMarkdown(text: string) {
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/\*(.+?)\*/g, "<em>$1</em>")
     .replace(/\n/g, "<br/>");
+}
+
+// ── Voice input (Web Speech API) ───────────────────────────────────────────
+// Support is uneven: Chrome/Edge/Safari implement it (Chrome behind the
+// webkit- prefix), Firefox does not. Everything below feature-detects and the
+// button simply doesn't render when unsupported.
+interface SpeechRecognitionAlternativeLike { transcript: string }
+interface SpeechRecognitionResultLike {
+  readonly length: number;
+  isFinal: boolean;
+  [index: number]: SpeechRecognitionAlternativeLike;
+}
+interface SpeechRecognitionEventLike {
+  resultIndex: number;
+  results: { readonly length: number; [index: number]: SpeechRecognitionResultLike };
+}
+interface SpeechRecognitionLike {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  maxAlternatives: number;
+  start(): void;
+  stop(): void;
+  abort(): void;
+  onresult: ((e: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((e: { error?: string }) => void) | null;
+  onend: (() => void) | null;
+}
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+
+function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as {
+    SpeechRecognition?: SpeechRecognitionCtor;
+    webkitSpeechRecognition?: SpeechRecognitionCtor;
+  };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
 const SUGGESTIONS = [
@@ -540,6 +588,109 @@ export default function ChatInterface({ compact = false }: { compact?: boolean }
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // ── Voice input ─────────────────────────────────────────────────────────
+  const [voiceSupported, setVoiceSupported] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  // Text already committed when this dictation started, so interim results
+  // extend what the user typed instead of overwriting it.
+  const voiceBaseRef = useRef("");
+
+  // Detect support after mount — `window` doesn't exist during SSR, and
+  // checking in a render would desync server and client markup.
+  useEffect(() => {
+    setVoiceSupported(getSpeechRecognitionCtor() !== null);
+  }, []);
+
+  // Make sure a live recognition session can't outlive the component.
+  useEffect(() => {
+    return () => {
+      const rec = recognitionRef.current;
+      if (rec) {
+        rec.onresult = null;
+        rec.onerror = null;
+        rec.onend = null;
+        try { rec.abort(); } catch { /* already stopped */ }
+        recognitionRef.current = null;
+      }
+    };
+  }, []);
+
+  function stopListening() {
+    const rec = recognitionRef.current;
+    if (rec) {
+      try { rec.stop(); } catch { /* already stopped */ }
+    }
+    setListening(false);
+  }
+
+  function startListening() {
+    const Ctor = getSpeechRecognitionCtor();
+    if (!Ctor) return;
+
+    // Toggle off if already running.
+    if (recognitionRef.current) { stopListening(); return; }
+
+    setVoiceError(null);
+    let rec: SpeechRecognitionLike;
+    try {
+      rec = new Ctor();
+    } catch {
+      setVoiceError("Voice input couldn't start on this device.");
+      return;
+    }
+
+    // en-IN gives noticeably better results than en-US for Indian English and
+    // for the Hinglish medical vocabulary this app deals in. Pure Hindi
+    // dictation remains unreliable — a browser/engine limitation, not
+    // something this code can compensate for.
+    rec.lang = "en-IN";
+    rec.continuous = false;
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+
+    voiceBaseRef.current = input.trim();
+
+    rec.onresult = (event) => {
+      let transcript = "";
+      for (let i = 0; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      const base = voiceBaseRef.current;
+      // Populate the field only — never auto-send, so the user can review and
+      // edit exactly as they would with typed input.
+      setInput(base ? `${base} ${transcript.trim()}` : transcript.trim());
+    };
+
+    rec.onerror = (e) => {
+      const code = e?.error;
+      if (code === "not-allowed" || code === "service-not-allowed") {
+        setVoiceError("Microphone permission denied. Enable it in your browser settings.");
+      } else if (code === "no-speech") {
+        setVoiceError("Didn't catch that — try again.");
+      } else if (code !== "aborted") {
+        setVoiceError("Voice input failed. Please type instead.");
+      }
+      setListening(false);
+      recognitionRef.current = null;
+    };
+
+    rec.onend = () => {
+      setListening(false);
+      recognitionRef.current = null;
+    };
+
+    try {
+      rec.start();
+      recognitionRef.current = rec;
+      setListening(true);
+    } catch {
+      setVoiceError("Voice input couldn't start. Please type instead.");
+      recognitionRef.current = null;
+    }
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -952,8 +1103,22 @@ function extractLocationFromMessage(msg: string): string | null {
       {!compact && (
         <div className="bg-doctar-700 text-white px-6 py-4 shadow">
           <div className="max-w-2xl mx-auto flex items-center gap-3">
+            {/* Decorative only — deliberately not a link.
+                `draggable={false}` matters: a bare <img> is natively draggable,
+                so an imprecise click (mousedown, slight move, mouseup) starts an
+                image drag, and dropping it back on the tab navigates the browser
+                to /doctar-logo.svg — a real full page load that wipes the whole
+                conversation and reads as "clicking the logo reloaded the page".
+                `pointer-events-none` makes the element inert to clicks entirely.
+                Linking it home would be pointless anyway: next.config.ts
+                redirects / → /chat, so this page already is home. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/doctar-logo.svg" alt="DOCTAR" className="w-10 h-10 rounded-full" />
+            <img
+              src="/doctar-logo.svg"
+              alt="DOCTAR"
+              draggable={false}
+              className="w-10 h-10 rounded-full pointer-events-none select-none"
+            />
             <div>
               <h1 className="font-bold text-lg leading-tight">DOCTAR AI Assistant</h1>
               <p className="text-doctar-200 text-sm">Find doctors · Upload prescription · Health guidance</p>
@@ -1027,7 +1192,12 @@ function extractLocationFromMessage(msg: string): string | null {
                 {m.role === "assistant" && (
                   <div className="flex items-center gap-1.5 mb-1">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src="/doctar-logo.svg" alt="" className="w-5 h-5 rounded-full" />
+                  <img
+                      src="/doctar-logo.svg"
+                      alt=""
+                      draggable={false}
+                      className="w-5 h-5 rounded-full pointer-events-none select-none"
+                    />
                     <span className="text-xs font-medium text-doctar-700">DOCTAR AI</span>
                   </div>
                 )}
@@ -1210,9 +1380,36 @@ function extractLocationFromMessage(msg: string): string | null {
             onChange={handleMedicineImage}
           />
 
+          {/* Voice input — rendered only where the Web Speech API exists. */}
+          {voiceSupported && (
+            <button
+              onClick={listening ? stopListening : startListening}
+              disabled={uploading}
+              title={listening ? "Stop listening" : "Speak your question"}
+              aria-label={listening ? "Stop voice input" : "Start voice input"}
+              aria-pressed={listening}
+              className={`shrink-0 w-10 h-10 flex items-center justify-center rounded-xl border transition-colors ${
+                listening
+                  ? "bg-red-50 border-red-300 text-red-600 animate-pulse"
+                  : "text-doctar-500 hover:bg-doctar-50 border-gray-200"
+              } disabled:opacity-40`}
+            >
+              {listening ? (
+                <span className="relative flex items-center justify-center">
+                  <span className="absolute w-3 h-3 bg-red-500 rounded-full animate-ping opacity-75" />
+                  <span className="relative w-2.5 h-2.5 bg-red-600 rounded-full" />
+                </span>
+              ) : (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-14 0m7 7v3m0-3a4 4 0 01-4-4V6a4 4 0 118 0v8a4 4 0 01-4 4z" />
+                </svg>
+              )}
+            </button>
+          )}
+
           <input
             className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-doctar-500 focus:border-transparent"
-            placeholder="Ask about doctors, or attach a prescription 📎"
+            placeholder={listening ? "🎙️ Listening… speak now" : "Ask about doctors, or attach a prescription 📎"}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && send()}
@@ -1229,8 +1426,12 @@ function extractLocationFromMessage(msg: string): string | null {
             </svg>
           </button>
         </div>
+        {voiceError && (
+          <p className="mt-1.5 text-center text-xs text-red-500">{voiceError}</p>
+        )}
         <p className="mt-1.5 text-center text-xs text-gray-400">
           📎 Prescription &nbsp;·&nbsp; <span className="text-doctar-400">📷 Scan medicine label</span>
+          {voiceSupported && <> &nbsp;·&nbsp; <span className="text-doctar-400">🎙️ Speak</span></>}
         </p>
       </div>
     </div>
