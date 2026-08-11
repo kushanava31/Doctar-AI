@@ -1,16 +1,17 @@
 # DOCTAR API — Node.js + TypeScript + MongoDB
 
-Standalone REST API for DOCTAR (prescription OCR, medicine info, doctor/hospital
-chat assistant). This is a 1:1 port of the original Python/FastAPI backend
-(`../backend`) onto Node.js + Express + Mongoose. **Routes and JSON shapes are
-identical**, so any frontend that talked to the Python API works unchanged.
+Standalone REST API for DOCTAR: prescription OCR, doctor/hospital chat
+assistant, medicine info, symptom info, and emergency first-aid guidance.
+Originally a 1:1 port of a Python/FastAPI backend; routes and JSON shapes
+are unchanged since, so any client built against that contract still works.
 
 ## Stack
 
 - **Express** — HTTP server & routing
 - **TypeScript** — typed source (ESM, NodeNext)
 - **MongoDB + Mongoose** — data store (Doctor collection + Prescription docs)
-- **Gemini / Google Vision / OpenAI** — AI OCR, extraction, chat (env-keyed)
+- **Gemini / Google Vision / OpenAI** — AI OCR, extraction, chat, medicine &
+  symptom lookup (env-keyed; every Gemini call has a non-AI fallback)
 - **pdfkit** — bilingual (English/Hindi) medicine-schedule PDFs
 
 ## Quick start
@@ -23,9 +24,11 @@ npm run dev                   # start with hot reload on http://localhost:8000
 
 > ⚠️ **Do NOT run `npm run seed` against a database shared with the main site.**
 > Seeding calls `Doctor.deleteMany({})` and would wipe the existing `doctors`
-> collection. This deployment uses `USE_REAL_DOCTOR_DB=true` so the API only
-> reads real doctor data and never seeds. `npm run seed` is for a disposable /
-> standalone database only.
+> collection. Set `USE_REAL_DOCTOR_DB=true` on any deployment pointed at a
+> real shared database so the API only ever reads real doctor data and never
+> generates or seeds. `npm run seed` is for a disposable / standalone
+> database only — check the target deployment's actual env var before
+> assuming this, it's set independently per environment.
 
 Production:
 
