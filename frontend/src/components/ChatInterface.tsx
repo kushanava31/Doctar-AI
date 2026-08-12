@@ -616,6 +616,9 @@ export default function ChatInterface({ compact = false }: { compact?: boolean }
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
+  // Mobile-only drawer state — irrelevant above the md breakpoint, where
+  // ChatSidebar is always visible inline regardless of this value.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
   sessionIdRef.current = sessionId;
 
@@ -1226,6 +1229,8 @@ function extractLocationFromMessage(msg: string): string | null {
           onRenameSession={handleRenameSession}
           onDeleteSession={handleDeleteSession}
           onRetry={refreshSessions}
+          mobileOpen={sidebarOpen}
+          onMobileClose={() => setSidebarOpen(false)}
         />
       )}
       <div className="flex-1 min-w-0 flex flex-col">
@@ -1234,6 +1239,18 @@ function extractLocationFromMessage(msg: string): string | null {
       {!compact && (
         <div className="shrink-0 bg-doctar-700 text-white px-4 py-2.5 sm:px-6 sm:py-4 shadow">
           <div className="max-w-2xl mx-auto flex items-center gap-2 sm:gap-3">
+            {/* Sidebar toggle — mobile only. Above md the sidebar is always
+                visible inline (see ChatSidebar's md: classes), so there's
+                nothing for this button to open there. */}
+            <button
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open chat history"
+              className="md:hidden shrink-0 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
             {/* Decorative only — deliberately not a link.
                 `draggable={false}` matters: a bare <img> is natively draggable,
                 so an imprecise click (mousedown, slight move, mouseup) starts an

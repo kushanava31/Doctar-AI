@@ -98,6 +98,10 @@ interface ChatSidebarProps {
   onRenameSession: (id: string, title: string) => void;
   onDeleteSession: (id: string) => void;
   onRetry: () => void;
+  /** Mobile-only drawer state — ignored above the md breakpoint, where the
+   * sidebar is always visible inline (see the wrapper's md: classes below). */
+  mobileOpen: boolean;
+  onMobileClose: () => void;
 }
 
 export default function ChatSidebar({
@@ -110,6 +114,8 @@ export default function ChatSidebar({
   onRenameSession,
   onDeleteSession,
   onRetry,
+  mobileOpen,
+  onMobileClose,
 }: ChatSidebarProps) {
   const { user } = useAuth();
 
@@ -156,40 +162,91 @@ export default function ChatSidebar({
     if (id && value) onRenameSession(id, value);
   }
 
-  return (
-    <div className="w-72 shrink-0 h-full flex flex-col bg-white border-r border-gray-100">
-      {/* New Consultation */}
-      <div className="p-3 shrink-0">
-        <button
-          onClick={onNewChat}
-          className="w-full flex items-center justify-center gap-2 bg-doctar-600 hover:bg-doctar-700 text-white font-bold text-sm py-2.5 rounded-full transition-colors"
-        >
-          <PlusIcon className="w-4 h-4" />
-          New Consultation
-        </button>
-      </div>
+  // On mobile the drawer should get out of the way once its job is done;
+  // on desktop onMobileClose is a no-op visually (md:translate-x-0 keeps the
+  // sidebar shown regardless of mobileOpen), so wrapping unconditionally is safe.
+  function handleNewChat() {
+    onNewChat();
+    onMobileClose();
+  }
+  function handleSelectSession(id: string) {
+    onSelectSession(id);
+    onMobileClose();
+  }
 
-      {/* Nav */}
-      <div className="px-3 pb-2 shrink-0 space-y-1">
-        <button
-          onClick={() => setSidebarView("chat")}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
-            sidebarView === "chat" ? "bg-doctar-50 text-doctar-700" : "text-gray-500 hover:bg-gray-50"
-          }`}
-        >
-          <MessageSquareIcon className="w-4.5 h-4.5 shrink-0" />
-          Chat
-        </button>
-        <button
-          onClick={() => setSidebarView("history")}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
-            sidebarView === "history" ? "bg-doctar-50 text-doctar-700" : "text-gray-500 hover:bg-gray-50"
-          }`}
-        >
-          <HistoryIcon className="w-4.5 h-4.5 shrink-0" />
-          History
-        </button>
-      </div>
+  return (
+    <>
+      {/* Backdrop — mobile drawer only. md:hidden guarantees it never shows
+          on desktop even if mobileOpen is stale from a resize. */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-30 md:hidden"
+          onClick={onMobileClose}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Below md: fixed-position slide-in drawer, translated off-screen
+          unless mobileOpen. At md and up: back to a normal static flex
+          child, always visible — md:translate-x-0 cancels the transform
+          regardless of mobileOpen, and md:static takes it out of the
+          fixed-overlay stacking context entirely. */}
+      <div
+        className={`fixed inset-y-0 left-0 z-40 w-72 h-full flex flex-col bg-white border-r border-gray-100 transform transition-transform duration-200 ease-in-out ${
+          mobileOpen ? "translate-x-0" : "-translate-x-full"
+        } md:static md:z-auto md:translate-x-0 md:shrink-0`}
+      >
+        {/* Mobile-only close row — desktop has no drawer to close. */}
+        <div className="flex justify-end p-2 pb-0 md:hidden">
+          <button
+            onClick={onMobileClose}
+            aria-label="Close sidebar"
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-50"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* New Consultation */}
+        <div className="p-3 shrink-0">
+          <button
+            onClick={handleNewChat}
+            className="w-full flex items-center justify-center gap-2 bg-doctar-600 hover:bg-doctar-700 text-white font-bold text-sm py-2.5 rounded-full transition-colors"
+          >
+            <PlusIcon className="w-4 h-4" />
+            New Consultation
+          </button>
+        </div>
+
+        {/* Nav */}
+        <div className="px-3 pb-2 shrink-0 space-y-1">
+          <button
+            onClick={() => setSidebarView("chat")}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+              sidebarView === "chat" ? "bg-doctar-50 text-doctar-700" : "text-gray-500 hover:bg-gray-50"
+            }`}
+          >
+            {/* w-5 h-5, matching the icon-sizing convention used elsewhere in
+                the app (e.g. the header's location-pin icon in
+                ChatInterface.tsx) — NOT w-4.5, which isn't a real Tailwind
+                spacing value. Tailwind silently generates no CSS for an
+                invalid utility class rather than erroring, so this rendered
+                as a completely unconstrained, container-filling SVG. */}
+            <MessageSquareIcon className="w-5 h-5 shrink-0" />
+            Chat
+          </button>
+          <button
+            onClick={() => setSidebarView("history")}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+              sidebarView === "history" ? "bg-doctar-50 text-doctar-700" : "text-gray-500 hover:bg-gray-50"
+            }`}
+          >
+            <HistoryIcon className="w-5 h-5 shrink-0" />
+            History
+          </button>
+        </div>
 
       {/* Recents */}
       <div className="flex-1 min-h-0 flex flex-col px-3 pb-3">
@@ -245,7 +302,7 @@ export default function ChatSidebar({
                       />
                     ) : (
                       <button
-                        onClick={() => onSelectSession(s.id)}
+                        onClick={() => handleSelectSession(s.id)}
                         className={`w-full flex items-center gap-2 pl-2.5 pr-8 py-2 rounded-lg text-left transition-colors ${
                           isActive ? "bg-doctar-50" : "hover:bg-gray-50"
                         }`}
@@ -340,5 +397,6 @@ export default function ChatSidebar({
         )}
       </div>
     </div>
+    </>
   );
 }
