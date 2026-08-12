@@ -7,8 +7,22 @@ import {
   uploadPrescription,
   type MedicineItem,
 } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
+import ChatSidebar from "@/components/ChatSidebar";
+import {
+  deleteSession as apiDeleteSession,
+  getSession as apiGetSession,
+  listSessions as apiListSessions,
+  renameSession as apiRenameSession,
+  type SessionSummary,
+} from "@/lib/chatSessions";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+const GREETING_MESSAGE = {
+  role: "assistant" as const,
+  text: "👋 Hello! I'm DOCTAR AI — your health assistant.\n\nI can help you:\n• 🔍 **Find doctors** by speciality, city, or budget\n• 📋 **Upload a prescription** — tap the 📎 button to get your medicine schedule\n• 📷 **Scan a medicine label** — tap the camera button to identify any medicine\n• 💊 **Answer questions** about DOCTAR services\n\nTry asking: *\"Find a cardiologist in Delhi under ₹1000\"*",
+};
 
 interface Doctor {
   id: number;
@@ -321,8 +335,20 @@ function MedicineLabelCard({ label }: { label: MedicineLabel }) {
   );
 }
 
-function renderMarkdown(text: string) {
+/** Escape before any markdown substitution runs — this feeds dangerouslySetInnerHTML,
+ * and every message bubble (including the user's own) goes through it. Without this,
+ * typing e.g. `<img src=x onerror=...>` executes it in the sender's own browser. */
+function escapeHtml(text: string) {
   return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function renderMarkdown(text: string) {
+  return escapeHtml(text)
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/\*(.+?)\*/g, "<em>$1</em>")
     .replace(/\n/g, "<br/>");
@@ -576,18 +602,92 @@ export default function ChatInterface({ compact = false }: { compact?: boolean }
     return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, [showPicker, handleOutsideClick]);
 
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      role: "assistant",
-      text: "👋 Hello! I'm DOCTAR AI — your health assistant.\n\nI can help you:\n• 🔍 **Find doctors** by speciality, city, or budget\n• 📋 **Upload a prescription** — tap the 📎 button to get your medicine schedule\n• 📷 **Scan a medicine label** — tap the camera button to identify any medicine\n• 💊 **Answer questions** about DOCTAR services\n\nTry asking: *\"Find a cardiologist in Delhi under ₹1000\"*",
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([GREETING_MESSAGE]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // ── Chat sessions / sidebar (full page only — compact widget is untouched) ──
+  const { user } = useAuth();
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+  sessionIdRef.current = sessionId;
+
+  const refreshSessions = useCallback(async () => {
+    setSessionsLoading(true);
+    setSessionsError(null);
+    try {
+      const list = await apiListSessions();
+      setSessions(list);
+    } catch {
+      setSessionsError("Couldn't load your chat history.");
+    } finally {
+      setSessionsLoading(false);
+    }
+  }, []);
+
+  // Load the sidebar list once we know who's logged in, and clear any
+  // in-progress conversation state on every login/logout transition — the
+  // primary defense (not just the backend's silent-rebase) against a stale
+  // sessionId surviving an account switch on a shared browser.
+  useEffect(() => {
+    if (user) {
+      refreshSessions();
+    } else {
+      setSessions([]);
+    }
+    setSessionId(null);
+    setMessages([GREETING_MESSAGE]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  function startNewChat() {
+    setSessionId(null);
+    setMessages([GREETING_MESSAGE]);
+  }
+
+  async function selectSession(id: string) {
+    try {
+      const detail = await apiGetSession(id);
+      setSessionId(detail.id);
+      setMessages(
+        detail.messages.map((m) => ({
+          role: m.role,
+          text: m.text,
+          doctors: m.doctors,
+          hospitals: m.hospitals,
+        }))
+      );
+    } catch {
+      setSessionsError("Couldn't load that conversation.");
+    }
+  }
+
+  async function handleRenameSession(id: string, title: string) {
+    // Optimistic — the sidebar already shows the typed title immediately.
+    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, title } : s)));
+    try {
+      await apiRenameSession(id, title);
+    } catch {
+      refreshSessions(); // reconcile with the server on failure
+    }
+  }
+
+  async function handleDeleteSession(id: string) {
+    setSessions((prev) => prev.filter((s) => s.id !== id));
+    if (id === sessionId) startNewChat();
+    try {
+      await apiDeleteSession(id);
+    } catch {
+      refreshSessions();
+    }
+  }
 
   // ── Voice input ─────────────────────────────────────────────────────────
   const [voiceSupported, setVoiceSupported] = useState(false);
@@ -908,13 +1008,27 @@ function extractLocationFromMessage(msg: string): string | null {
     try {
       const body: Record<string, unknown> = { message: msg, history };
       if (city) body.user_city = city;
+      if (sessionIdRef.current) body.session_id = sessionIdRef.current;
       const res = await fetch(`${API}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // Needed so the auth cookie actually reaches the API — without this,
+        // optionalAuth on the backend never sees a logged-in user and
+        // persistence silently never activates, while everything else about
+        // the response still looks completely normal.
+        credentials: "include",
         body: JSON.stringify(body),
         signal: controller.signal,
       });
       const data = await res.json();
+
+      if (data.session_id) {
+        setSessionId(data.session_id);
+        // Refresh after every authenticated turn, not just new-session
+        // creation — keeps an existing session's position in the "most
+        // recent first" list correct too, not just its first appearance.
+        if (user) refreshSessions();
+      }
 
       // ── Post-process reply: inject city name into "Here are X doctors" headers ──
       let replyText: string = data.reply || "";
@@ -1098,7 +1212,23 @@ function extractLocationFromMessage(msg: string): string | null {
   const busy = loading || uploading;
 
   return (
-    <div className={`flex flex-col ${compact ? "h-full bg-white/60" : "app-viewport bg-transparent"}`}>
+    <div className={compact ? "h-full flex flex-col bg-white/60" : "app-viewport flex bg-transparent"}>
+      {/* Sidebar — full-page /chat view only, per spec. The compact floating
+          widget (384×520px) has no room for a persistent side panel. */}
+      {!compact && (
+        <ChatSidebar
+          sessions={sessions}
+          currentSessionId={sessionId}
+          loading={sessionsLoading}
+          error={sessionsError}
+          onNewChat={startNewChat}
+          onSelectSession={selectSession}
+          onRenameSession={handleRenameSession}
+          onDeleteSession={handleDeleteSession}
+          onRetry={refreshSessions}
+        />
+      )}
+      <div className="flex-1 min-w-0 flex flex-col">
       {/* Header — shrink-0 so it keeps its size and the message list absorbs
           the flex slack, rather than the header stretching on tall screens. */}
       {!compact && (
@@ -1443,6 +1573,7 @@ function extractLocationFromMessage(msg: string): string | null {
           📎 Prescription &nbsp;·&nbsp; <span className="text-doctar-400">📷 Scan medicine label</span>
           {voiceSupported && <> &nbsp;·&nbsp; <span className="text-doctar-400">🎙️ Speak</span></>}
         </p>
+      </div>
       </div>
     </div>
   );

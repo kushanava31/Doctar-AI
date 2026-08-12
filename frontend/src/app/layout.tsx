@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import ChatWidgetMount from "./ChatWidgetMount";
+import { AuthProvider } from "@/contexts/AuthContext";
 
 export const metadata: Metadata = {
   title: "DOCTAR — AI Health Assistant",
@@ -15,8 +16,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        {children}
-        <ChatWidgetMount />
+        <AuthProvider>
+          {children}
+          <ChatWidgetMount />
+        </AuthProvider>
       </body>
     </html>
   );
